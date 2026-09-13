@@ -3,5 +3,6 @@ __pycache__/
 .env
 gymai.db
 renata_ai.db
+sylrix_ai.db
 static/uploads/*
 !static/uploads/.gitkeep

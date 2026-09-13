@@ -1,6 +1,6 @@
-# Renata AI
+# SYLRIX AI™
 
-Renata AI is a starter web app for a gym's member workout notebook. It includes:
+SYLRIX AI is a starter web app for a gym's member workout notebook. It includes:
 
 - goal-, experience-, schedule-, and equipment-aware workout splits
 - a public `/daily` workout page that can be placed behind a gym QR code
@@ -19,7 +19,7 @@ Open `http://127.0.0.1:5001` in a browser. The public QR destination is `http://
 
 ## Before deployment
 
-Set a strong, private `RENATA_AI_SECRET_KEY`. SQLite and local uploaded images are appropriate for local development only. A real gym deployment should use a managed database, private object storage for photos, real user authentication, backups, and a privacy policy.
+Set a strong, private `SYLRIX_AI_SECRET_KEY`. SQLite and local uploaded images are appropriate for local development only. A real gym deployment should use a managed database, private object storage for photos, real user authentication, backups, and a privacy policy.
 
 ## Live-data policy
 

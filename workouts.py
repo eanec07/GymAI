@@ -126,7 +126,7 @@ def generate_daily_workout_for_level(experience):
         level = "beginner"
     workout = DAILY_WORKOUTS[level]
     return {
-        "title": "Renata AI Full-Body Workout of the Day",
+        "title": "SYLRIX AI Full-Body Workout of the Day",
         "level": level.title(),
         "subtitle": workout["subtitle"],
         "exercises": [{"name": name, "sets_reps": sets_reps, "muscles": muscles} for name, sets_reps, muscles in workout["exercises"]],
