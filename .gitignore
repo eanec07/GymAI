@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+.env
+gymai.db
+static/uploads/*
+!static/uploads/.gitkeep
