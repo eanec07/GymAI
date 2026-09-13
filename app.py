@@ -37,6 +37,7 @@ def setup_database():
             CREATE TABLE IF NOT EXISTS members (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, age INTEGER NOT NULL, sex TEXT NOT NULL, weight REAL NOT NULL, height REAL NOT NULL, goal TEXT NOT NULL, days INTEGER NOT NULL, equipment TEXT NOT NULL, experience TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             CREATE TABLE IF NOT EXISTS workout_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, exercise_name TEXT NOT NULL, weight REAL, reps INTEGER, sets INTEGER, notes TEXT, logged_on TEXT NOT NULL, FOREIGN KEY (member_id) REFERENCES members(id));
             CREATE TABLE IF NOT EXISTS progress_photos (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, filename TEXT NOT NULL, caption TEXT, uploaded_on TEXT NOT NULL, FOREIGN KEY (member_id) REFERENCES members(id));
+            CREATE TABLE IF NOT EXISTS step_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, steps INTEGER NOT NULL, goal INTEGER NOT NULL DEFAULT 8000, logged_on TEXT NOT NULL, UNIQUE(member_id, logged_on), FOREIGN KEY (member_id) REFERENCES members(id));
         """)
         member_columns = {row[1] for row in connection.execute("PRAGMA table_info(members)")}
         for column, definition in {
@@ -77,7 +78,9 @@ def home():
         recent_logs = connection.execute("SELECT * FROM workout_logs WHERE member_id = ? ORDER BY logged_on DESC, id DESC LIMIT 5", (member["id"],)).fetchall()
         log_count = connection.execute("SELECT COUNT(*) FROM workout_logs WHERE member_id = ?", (member["id"],)).fetchone()[0]
         photo_count = connection.execute("SELECT COUNT(*) FROM progress_photos WHERE member_id = ?", (member["id"],)).fetchone()[0]
-    return render_template("dashboard.html", member=member, nutrition=nutrition, recent_logs=recent_logs, status=player_status(log_count, photo_count))
+        step_goals = connection.execute("SELECT COUNT(*) FROM step_logs WHERE member_id = ? AND steps >= goal", (member["id"],)).fetchone()[0]
+        today_steps = connection.execute("SELECT steps, goal FROM step_logs WHERE member_id = ? AND logged_on = ?", (member["id"], date.today().isoformat())).fetchone()
+    return render_template("dashboard.html", member=member, nutrition=nutrition, recent_logs=recent_logs, status=player_status(log_count, photo_count, step_goals), today_steps=today_steps)
 
 
 @app.route("/onboarding", methods=["GET", "POST"])
@@ -141,6 +144,32 @@ def nutrition():
         return redirect(url_for("onboarding"))
     targets = calculate_nutrition(member["age"], member["sex"], member["weight"], member["height"], member["goal"], member["days"])
     return render_template("nutrition.html", member=member, targets=targets)
+
+
+@app.route("/steps", methods=["GET", "POST"])
+def steps():
+    member = require_member()
+    if not member:
+        return redirect(url_for("onboarding"))
+    today = date.today().isoformat()
+    if request.method == "POST":
+        try:
+            step_count = int(request.form["steps"])
+            goal = int(request.form["goal"])
+            if step_count < 0 or goal < 1000 or goal > 100000:
+                raise ValueError
+        except (KeyError, ValueError):
+            flash("Use a valid step count and a goal between 1,000 and 100,000.")
+            return redirect(url_for("steps"))
+        with db_connection() as connection:
+            connection.execute("""INSERT INTO step_logs (member_id, steps, goal, logged_on) VALUES (?, ?, ?, ?)
+                ON CONFLICT(member_id, logged_on) DO UPDATE SET steps = excluded.steps, goal = excluded.goal""", (member["id"], step_count, goal, today))
+        flash("Today’s steps are saved.")
+        return redirect(url_for("steps"))
+    with db_connection() as connection:
+        today_steps = connection.execute("SELECT * FROM step_logs WHERE member_id = ? AND logged_on = ?", (member["id"], today)).fetchone()
+        history = connection.execute("SELECT * FROM step_logs WHERE member_id = ? ORDER BY logged_on DESC LIMIT 7", (member["id"],)).fetchall()
+    return render_template("steps.html", member=member, today_steps=today_steps, history=history)
 
 
 @app.route("/physique", methods=["GET", "POST"])

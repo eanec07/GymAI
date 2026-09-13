@@ -9,9 +9,9 @@ RANKS = [
 ]
 
 
-def player_status(workout_logs, progress_photos):
+def player_status(workout_logs, progress_photos, step_goals=0):
     """Award visible progress for completed actions, never for appearance."""
-    xp = workout_logs * 25 + progress_photos * 15
+    xp = workout_logs * 25 + progress_photos * 15 + step_goals * 10
     rank, floor, title = RANKS[0]
     next_rank = None
     for candidate_rank, candidate_floor, candidate_title in RANKS:
