@@ -68,7 +68,55 @@ def generate_workout(equipment, experience, days, goal="muscle gain"):
 
 
 def generate_daily_workout():
-    """A public, no-account-required workout for the gym's QR code."""
-    pool = [item for item in load_exercises() if item.get("category") == "strength" and item.get("level") in ("beginner", "intermediate")]
-    selected = random.sample(pool, 6)
-    return {"title": "GymAI Full-Body Workout of the Day", "subtitle": "Beginner-friendly • about 45 minutes • choose a comfortable weight", "exercises": [{"name": item["name"], "sets_reps": "3 sets × 8–12 reps", "muscles": ", ".join(item["primaryMuscles"])} for item in selected]}
+    return generate_daily_workout_for_level("beginner")
+
+
+DAILY_WORKOUTS = {
+    "beginner": {
+        "subtitle": "Beginner • about 35–45 minutes • focus on controlled, comfortable reps",
+        "exercises": [
+            ("Bodyweight Squat", "3 sets × 8–12 reps", "legs"),
+            ("Push-Up", "3 sets × 6–10 reps", "chest and triceps"),
+            ("Dumbbell Row", "3 sets × 8–12 reps each side", "back and biceps"),
+            ("Dumbbell Shoulder Press", "2 sets × 8–10 reps", "shoulders"),
+            ("Glute Bridge", "3 sets × 10–15 reps", "glutes"),
+            ("Plank", "3 sets × 20–30 seconds", "core"),
+        ],
+    },
+    "intermediate": {
+        "subtitle": "Intermediate • about 45–55 minutes • leave 1–3 good reps in reserve",
+        "exercises": [
+            ("Goblet Squat", "3 sets × 8–12 reps", "legs"),
+            ("Dumbbell Bench Press", "3 sets × 8–12 reps", "chest and triceps"),
+            ("Lat Pulldown", "3 sets × 8–12 reps", "back and biceps"),
+            ("Romanian Deadlift", "3 sets × 8–10 reps", "hamstrings and glutes"),
+            ("Dumbbell Shoulder Press", "3 sets × 8–12 reps", "shoulders"),
+            ("Hanging Knee Raise", "3 sets × 8–12 reps", "core"),
+        ],
+    },
+    "advanced": {
+        "subtitle": "Advanced • about 55–70 minutes • use strong form and a challenging load",
+        "exercises": [
+            ("Barbell Back Squat", "4 sets × 5–8 reps", "legs"),
+            ("Barbell Bench Press", "4 sets × 5–8 reps", "chest and triceps"),
+            ("Pull-Up", "4 sets × 6–10 reps", "back and biceps"),
+            ("Romanian Deadlift", "3 sets × 6–10 reps", "hamstrings and glutes"),
+            ("Overhead Press", "3 sets × 6–10 reps", "shoulders"),
+            ("Hanging Leg Raise", "3 sets × 10–15 reps", "core"),
+        ],
+    },
+}
+
+
+def generate_daily_workout_for_level(experience):
+    """Return a familiar full-body gym session matched to the visitor's experience."""
+    level = experience.lower().strip()
+    if level not in DAILY_WORKOUTS:
+        level = "beginner"
+    workout = DAILY_WORKOUTS[level]
+    return {
+        "title": "GymAI Full-Body Workout of the Day",
+        "level": level.title(),
+        "subtitle": workout["subtitle"],
+        "exercises": [{"name": name, "sets_reps": sets_reps, "muscles": muscles} for name, sets_reps, muscles in workout["exercises"]],
+    }

@@ -10,7 +10,7 @@ from werkzeug.utils import secure_filename
 from nutrition import calculate_nutrition
 from physique import build_physique_path
 from data_sources import source_status
-from workouts import generate_daily_workout, generate_workout
+from workouts import generate_daily_workout_for_level, generate_workout
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE = BASE_DIR / "gymai.db"
@@ -167,7 +167,8 @@ def progress():
 
 @app.route("/daily")
 def daily_workout():
-    return render_template("daily.html", workout=generate_daily_workout())
+    experience = request.args.get("experience", "beginner")
+    return render_template("daily.html", workout=generate_daily_workout_for_level(experience))
 
 
 @app.route("/logout")
