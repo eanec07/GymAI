@@ -1,0 +1,1 @@
+nav .brand{font-size:clamp(1.65rem,3.2vw,2.3rem);letter-spacing:.035em;line-height:1;text-shadow:0 0 14px var(--glow)}nav .brand::before{font-size:.48em;vertical-align:middle}nav .brand+ a{margin-left:12px}@media(max-width:760px){nav .brand{font-size:1.85rem}}
