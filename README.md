@@ -15,7 +15,7 @@ python3 -m pip install -r requirements.txt
 python3 app.py
 ```
 
-Open `http://127.0.0.1:5000` in a browser. The public QR destination is `http://127.0.0.1:5000/daily` locally; use your deployed domain plus `/daily` when you create the gym QR code.
+Open `http://127.0.0.1:5001` in a browser. The public QR destination is `http://127.0.0.1:5001/daily` locally; use your deployed domain plus `/daily` when you create the gym QR code. Set `PORT` to use a different port when deploying.
 
 ## Before deployment
 
