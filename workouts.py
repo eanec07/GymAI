@@ -38,7 +38,25 @@ def _prescription(goal, exercise):
     return "3–4 sets × 8–12 reps" if compound else "3 sets × 10–15 reps"
 
 
-def _candidates(exercises, muscles, equipment, experience):
+def _avoid_terms(limitations, avoid_exercises):
+    """Turn common limitations into conservative filters, not medical advice."""
+    notes = f"{limitations or ''} {avoid_exercises or ''}".lower()
+    terms = set()
+    rules = {
+        ("shoulder", "overhead"): ("shoulder", "overhead", "military press", "upright row", "snatch"),
+        ("knee",): ("squat", "lunge", "leg press", "step-up", "jump", "pistol"),
+        ("back", "spine", "lower back"): ("deadlift", "good morning", "bent over", "barbell row"),
+        ("wrist", "elbow"): ("push-up", "dip", "curl", "skullcrusher"),
+        ("hip",): ("deadlift", "lunge", "squat", "hip thrust"),
+    }
+    for triggers, blocked in rules.items():
+        if any(trigger in notes for trigger in triggers):
+            terms.update(blocked)
+    terms.update(item.strip() for item in (avoid_exercises or "").lower().split(",") if len(item.strip()) > 2)
+    return terms
+
+
+def _candidates(exercises, muscles, equipment, experience, blocked_terms=(), favorite_exercises=""):
     user_level = LEVELS.get("expert" if experience == "advanced" else experience, 1)
     choices = []
     for exercise in exercises:
@@ -48,9 +66,12 @@ def _candidates(exercises, muscles, equipment, experience):
             continue
         if not _equipment_matches((exercise.get("equipment") or "").lower(), equipment):
             continue
+        if any(term in exercise["name"].lower() for term in blocked_terms):
+            continue
         if set(exercise.get("primaryMuscles", [])).intersection(muscles):
             choices.append(exercise)
-    return choices
+    favorites = [item.strip().lower() for item in favorite_exercises.split(",") if item.strip()]
+    return sorted(choices, key=lambda exercise: any(term in exercise["name"].lower() for term in favorites), reverse=True)
 
 
 def generate_workout(equipment, experience, days, goal="muscle gain"):
@@ -180,20 +201,33 @@ def _named_plan(days, title, sessions, goal):
     return [{"day": index + 1, "name": f"{title} — {name}", "focus": focus, "exercises": [{"name": exercise, "sets_reps": prescription, "muscles": focus} for exercise, prescription in exercises]} for index, (name, focus, exercises) in enumerate((sessions * ((days + len(sessions) - 1) // len(sessions)))[:days])]
 
 
-def generate_workout(equipment, experience, days, goal="muscle gain", training_style="", split_preference="auto"):
+def generate_workout(equipment, experience, days, goal="muscle gain", training_style="", split_preference="auto", limitations="", session_minutes=60, favorite_exercises="", avoid_exercises=""):
+    """Create a plan from schedule, equipment, goals, preferences and safety filters."""
     days = max(1, min(int(days), 7))
+    session_minutes = max(20, min(int(session_minutes or 60), 120))
+    exercise_limit = 3 if session_minutes <= 30 else 4 if session_minutes <= 45 else 5 if session_minutes <= 60 else 6
+    blocked_terms = _avoid_terms(limitations, avoid_exercises)
     style = training_style.lower()
     if "calisthenics" in style or split_preference.lower() == "calisthenics":
         sessions = [("Push", "chest, shoulders, triceps", [("Push-Up", "4 sets × 8–15 reps"), ("Pike Push-Up", "3 sets × 6–12 reps"), ("Bench Dip", "3 sets × 8–15 reps"), ("Hollow Hold", "3 sets × 20–40 seconds")]), ("Pull", "back, biceps, core", [("Assisted Pull-Up", "4 sets × 5–10 reps"), ("Inverted Row", "4 sets × 8–15 reps"), ("Dead Hang", "3 sets × 20–40 seconds"), ("Hanging Knee Raise", "3 sets × 8–15 reps")]), ("Legs", "legs and core", [("Bodyweight Squat", "4 sets × 12–20 reps"), ("Reverse Lunge", "3 sets × 10 reps each side"), ("Glute Bridge", "3 sets × 15 reps"), ("Calf Raise", "3 sets × 15–25 reps")])]
-        return _named_plan(days, "Calisthenics", sessions, goal)
+        return _finalize_plan(_named_plan(days, "Calisthenics", sessions, goal), exercise_limit, blocked_terms, limitations)
     if "crossfit" in style or "functional" in style:
         sessions = [("Engine", "conditioning", [("Rowing Intervals", "5 rounds × 250 m"), ("Kettlebell Swing", "5 rounds × 15 reps"), ("Push-Up", "5 rounds × 10 reps"), ("Farmer Carry", "5 rounds × 40 m")]), ("Strength + WOD", "full body", [("Front Squat", "4 sets × 5 reps"), ("Dumbbell Thruster", "4 rounds × 12 reps"), ("Burpee", "4 rounds × 10 reps"), ("Box Step-Up", "4 rounds × 12 reps")])]
-        return _named_plan(days, "Functional Training", sessions, goal)
+        return _finalize_plan(_named_plan(days, "Functional Training", sessions, goal), exercise_limit, blocked_terms, limitations)
     exercises, plan, used_names = load_exercises(), [], set()
     for index, (name, muscles) in enumerate(_preferred_split(days, split_preference), start=1):
-        pool = _candidates(exercises, muscles, equipment, experience)
+        pool = _candidates(exercises, muscles, equipment, experience, blocked_terms, favorite_exercises)
         fresh_pool = [item for item in pool if item["name"] not in used_names] or pool
-        selected = random.sample(fresh_pool, min(6 if "Full" in name else 5, len(fresh_pool)))
+        selected = random.sample(fresh_pool, min(exercise_limit, len(fresh_pool)))
         used_names.update(item["name"] for item in selected)
         plan.append({"day": index, "name": name, "focus": ", ".join(muscles).replace("lats", "back"), "exercises": [{"name": item["name"], "sets_reps": _prescription(goal, item), "muscles": ", ".join(item["primaryMuscles"])} for item in selected]})
+    return _finalize_plan(plan, exercise_limit, blocked_terms, limitations)
+
+
+def _finalize_plan(plan, exercise_limit, blocked_terms, limitations):
+    for session in plan:
+        session["exercises"] = [exercise for exercise in session["exercises"] if not any(term in exercise["name"].lower() for term in blocked_terms)][:exercise_limit]
+        if not session["exercises"]:
+            session["exercises"] = [{"name": "Easy walk + mobility", "sets_reps": "15–20 minutes, easy pace", "muscles": "recovery"}]
+        session["safety_note"] = "Your stated limitations were used to remove common aggravating movements. Stop if anything hurts and ask a qualified clinician or coach for individualized guidance." if limitations.strip() else ""
     return plan
