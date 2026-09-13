@@ -38,6 +38,15 @@ def setup_database():
             CREATE TABLE IF NOT EXISTS workout_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, exercise_name TEXT NOT NULL, weight REAL, reps INTEGER, sets INTEGER, notes TEXT, logged_on TEXT NOT NULL, FOREIGN KEY (member_id) REFERENCES members(id));
             CREATE TABLE IF NOT EXISTS progress_photos (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, filename TEXT NOT NULL, caption TEXT, uploaded_on TEXT NOT NULL, FOREIGN KEY (member_id) REFERENCES members(id));
         """)
+        member_columns = {row[1] for row in connection.execute("PRAGMA table_info(members)")}
+        for column, definition in {
+            "custom_goal": "TEXT NOT NULL DEFAULT ''",
+            "training_style": "TEXT NOT NULL DEFAULT ''",
+            "equipment_notes": "TEXT NOT NULL DEFAULT ''",
+            "limitations": "TEXT NOT NULL DEFAULT ''",
+        }.items():
+            if column not in member_columns:
+                connection.execute(f"ALTER TABLE members ADD COLUMN {column} {definition}")
 
 
 def current_member():
@@ -75,14 +84,15 @@ def home():
 def onboarding():
     if request.method == "POST":
         try:
-            values = {"name": request.form["name"].strip(), "age": int(request.form["age"]), "sex": request.form["sex"].lower(), "weight": float(request.form["weight"]), "height": float(request.form["height"]), "goal": request.form["goal"].lower(), "days": int(request.form["days"]), "equipment": request.form["equipment"].lower(), "experience": request.form["experience"].lower()}
+            values = {"name": request.form["name"].strip(), "age": int(request.form["age"]), "sex": request.form["sex"].lower(), "weight": float(request.form["weight"]), "height": float(request.form["height"]), "goal": request.form["goal"].lower(), "days": int(request.form["days"]), "equipment": request.form["equipment"].lower(), "experience": request.form["experience"].lower(), "custom_goal": request.form.get("custom_goal", "").strip()[:500], "training_style": request.form.get("training_style", "").strip()[:100], "equipment_notes": request.form.get("equipment_notes", "").strip()[:500], "limitations": request.form.get("limitations", "").strip()[:500]}
             if not values["name"] or not 1 <= values["days"] <= 7 or values["age"] < 13:
                 raise ValueError
         except (KeyError, ValueError):
             flash("Please enter valid profile details. Training days must be from 1 to 7.")
             return render_template("onboarding.html")
         with db_connection() as connection:
-            cursor = connection.execute("INSERT INTO members (name, age, sex, weight, height, goal, days, equipment, experience) VALUES (:name, :age, :sex, :weight, :height, :goal, :days, :equipment, :experience)", values)
+            cursor = connection.execute("""INSERT INTO members (name, age, sex, weight, height, goal, days, equipment, experience, custom_goal, training_style, equipment_notes, limitations)
+                VALUES (:name, :age, :sex, :weight, :height, :goal, :days, :equipment, :experience, :custom_goal, :training_style, :equipment_notes, :limitations)""", values)
             session["member_id"] = cursor.lastrowid
         flash("Your GymAI profile is ready.")
         return redirect(url_for("plan"))
@@ -94,7 +104,9 @@ def plan():
     member = require_member()
     if not member:
         return redirect(url_for("onboarding"))
-    return render_template("plan.html", member=member, workout_plan=generate_workout(member["equipment"], member["experience"], member["days"], member["goal"]))
+    plan_goal = f'{member["goal"]} {member["custom_goal"]}'
+    plan_equipment = f'{member["equipment"]} {member["equipment_notes"]}'
+    return render_template("plan.html", member=member, workout_plan=generate_workout(plan_equipment, member["experience"], member["days"], plan_goal))
 
 
 @app.route("/log", methods=["GET", "POST"])
