@@ -131,3 +131,69 @@ def generate_daily_workout_for_level(experience):
         "subtitle": workout["subtitle"],
         "exercises": [{"name": name, "sets_reps": sets_reps, "muscles": muscles} for name, sets_reps, muscles in workout["exercises"]],
     }
+
+
+# Every public daily workout follows this weekly rhythm, rather than changing randomly.
+WEEKLY_DAILY_TEMPLATES = [
+    ("Monday", "Push Strength", [("Push-Up", "Dumbbell Bench Press", "Barbell Bench Press", "Barbell Bench Press"), ("Dumbbell Shoulder Press", "Dumbbell Shoulder Press", "Overhead Press", "Overhead Press"), ("Dumbbell Row", "Seated Cable Row", "Barbell Row", "Weighted Pull-Up"), ("Bodyweight Squat", "Goblet Squat", "Front Squat", "Front Squat"), ("Plank", "Plank", "Ab Wheel Rollout", "Ab Wheel Rollout")]),
+    ("Tuesday", "Lower Body", [("Bodyweight Squat", "Goblet Squat", "Barbell Back Squat", "Barbell Back Squat"), ("Glute Bridge", "Romanian Deadlift", "Romanian Deadlift", "Barbell Romanian Deadlift"), ("Reverse Lunge", "Dumbbell Lunge", "Barbell Lunge", "Barbell Lunge"), ("Calf Raise", "Standing Calf Raise", "Standing Calf Raise", "Standing Calf Raise"), ("Dead Bug", "Hanging Knee Raise", "Hanging Leg Raise", "Hanging Leg Raise")]),
+    ("Wednesday", "Pull + Core", [("Dumbbell Row", "Lat Pulldown", "Pull-Up", "Weighted Pull-Up"), ("Band Pull-Apart", "Face Pull", "Face Pull", "Face Pull"), ("Dumbbell Curl", "Dumbbell Curl", "Barbell Curl", "Barbell Curl"), ("Glute Bridge", "Hip Thrust", "Barbell Hip Thrust", "Barbell Hip Thrust"), ("Plank", "Hanging Knee Raise", "Hanging Leg Raise", "Ab Wheel Rollout")]),
+    ("Thursday", "Conditioning + Mobility", [("Brisk Walk", "Rowing Machine", "Rowing Intervals", "Rowing Intervals"), ("Step-Up", "Kettlebell Swing", "Kettlebell Swing", "Kettlebell Swing"), ("Push-Up", "Push-Up", "Burpee", "Burpee"), ("Bird Dog", "Farmer Carry", "Farmer Carry", "Farmer Carry"), ("Hip Stretch", "Hip Mobility Flow", "Hip Mobility Flow", "Hip Mobility Flow")]),
+    ("Friday", "Full-Body Strength", [("Bodyweight Squat", "Goblet Squat", "Barbell Back Squat", "Barbell Back Squat"), ("Push-Up", "Dumbbell Bench Press", "Barbell Bench Press", "Barbell Bench Press"), ("Dumbbell Row", "Lat Pulldown", "Pull-Up", "Weighted Pull-Up"), ("Glute Bridge", "Romanian Deadlift", "Romanian Deadlift", "Barbell Romanian Deadlift"), ("Plank", "Hanging Knee Raise", "Hanging Leg Raise", "Ab Wheel Rollout")]),
+    ("Saturday", "Athletic Engine", [("Easy Walk", "Treadmill Incline Walk", "Sled Push", "Sled Push"), ("Bodyweight Squat", "Box Step-Up", "Box Jump", "Box Jump"), ("Push-Up", "Dumbbell Thruster", "Dumbbell Thruster", "Barbell Thruster"), ("Dumbbell Row", "Farmer Carry", "Farmer Carry", "Farmer Carry"), ("Plank", "Suitcase Carry", "Suitcase Carry", "Suitcase Carry")]),
+    ("Sunday", "Recovery + Reset", [("Easy Walk", "Easy Walk", "Easy Walk", "Easy Walk"), ("Hip Stretch", "Hip Mobility Flow", "Hip Mobility Flow", "Hip Mobility Flow"), ("Cat-Cow", "Cat-Cow", "Cat-Cow", "Cat-Cow"), ("Bodyweight Glute Bridge", "Glute Bridge", "Glute Bridge", "Glute Bridge"), ("Breathing Reset", "Breathing Reset", "Breathing Reset", "Breathing Reset")]),
+]
+
+
+def weekly_daily_schedule(selected_date):
+    start = selected_date - __import__("datetime").timedelta(days=selected_date.weekday())
+    return [{"date": start + __import__("datetime").timedelta(days=index), "day": day, "focus": focus} for index, (day, focus, _items) in enumerate(WEEKLY_DAILY_TEMPLATES)]
+
+
+def generate_daily_workout_for_level(experience, selected_date=None):
+    selected_date = selected_date or __import__("datetime").date.today()
+    level_index = {"beginner": 0, "intermediate": 1, "advanced": 2, "elite": 3}.get(experience.lower().strip(), 0)
+    day, focus, items = WEEKLY_DAILY_TEMPLATES[selected_date.weekday()]
+    reps = ("3 sets × 8–12 reps", "3–4 sets × 8–12 reps", "4 sets × 6–10 reps", "4–5 sets × 4–8 reps")[level_index]
+    if focus in ("Conditioning + Mobility", "Athletic Engine"):
+        reps = ("3 rounds", "4 rounds", "4–5 rounds", "5 rounds")[level_index]
+    if focus == "Recovery + Reset":
+        reps = "2–3 easy rounds"
+    return {"title": f"{day} — {focus}", "level": ("Beginner", "Intermediate", "Advanced", "Elite")[level_index], "subtitle": f"Week-aware SYLRIX daily session • {focus.lower()} • {selected_date.strftime('%B %d')}", "exercises": [{"name": item[level_index], "sets_reps": reps, "muscles": focus.lower()} for item in items]}
+
+
+def _preferred_split(days, preference):
+    preference = preference.lower().strip()
+    if preference == "full body":
+        return [(f"Full Body {chr(65 + index)}", ["chest", "lats", "quads", "hamstrings", "shoulders", "abdominals"]) for index in range(days)]
+    if preference == "upper lower":
+        upper = ("Upper Body", ["chest", "lats", "shoulders", "biceps", "triceps"])
+        lower = ("Lower Body + Core", ["quads", "hamstrings", "glutes", "calves", "abdominals"])
+        return [upper if index % 2 == 0 else lower for index in range(days)]
+    if preference == "push pull legs":
+        ppl = [("Push", ["chest", "shoulders", "triceps"]), ("Pull", ["lats", "middle back", "biceps", "traps"]), ("Legs + Core", ["quads", "hamstrings", "glutes", "calves", "abdominals"])]
+        return [ppl[index % 3] for index in range(days)]
+    return SPLITS.get(days, SPLITS[6] + [("Active Recovery", ["abdominals"])])
+
+
+def _named_plan(days, title, sessions, goal):
+    return [{"day": index + 1, "name": f"{title} — {name}", "focus": focus, "exercises": [{"name": exercise, "sets_reps": prescription, "muscles": focus} for exercise, prescription in exercises]} for index, (name, focus, exercises) in enumerate((sessions * ((days + len(sessions) - 1) // len(sessions)))[:days])]
+
+
+def generate_workout(equipment, experience, days, goal="muscle gain", training_style="", split_preference="auto"):
+    days = max(1, min(int(days), 7))
+    style = training_style.lower()
+    if "calisthenics" in style or split_preference.lower() == "calisthenics":
+        sessions = [("Push", "chest, shoulders, triceps", [("Push-Up", "4 sets × 8–15 reps"), ("Pike Push-Up", "3 sets × 6–12 reps"), ("Bench Dip", "3 sets × 8–15 reps"), ("Hollow Hold", "3 sets × 20–40 seconds")]), ("Pull", "back, biceps, core", [("Assisted Pull-Up", "4 sets × 5–10 reps"), ("Inverted Row", "4 sets × 8–15 reps"), ("Dead Hang", "3 sets × 20–40 seconds"), ("Hanging Knee Raise", "3 sets × 8–15 reps")]), ("Legs", "legs and core", [("Bodyweight Squat", "4 sets × 12–20 reps"), ("Reverse Lunge", "3 sets × 10 reps each side"), ("Glute Bridge", "3 sets × 15 reps"), ("Calf Raise", "3 sets × 15–25 reps")])]
+        return _named_plan(days, "Calisthenics", sessions, goal)
+    if "crossfit" in style or "functional" in style:
+        sessions = [("Engine", "conditioning", [("Rowing Intervals", "5 rounds × 250 m"), ("Kettlebell Swing", "5 rounds × 15 reps"), ("Push-Up", "5 rounds × 10 reps"), ("Farmer Carry", "5 rounds × 40 m")]), ("Strength + WOD", "full body", [("Front Squat", "4 sets × 5 reps"), ("Dumbbell Thruster", "4 rounds × 12 reps"), ("Burpee", "4 rounds × 10 reps"), ("Box Step-Up", "4 rounds × 12 reps")])]
+        return _named_plan(days, "Functional Training", sessions, goal)
+    exercises, plan, used_names = load_exercises(), [], set()
+    for index, (name, muscles) in enumerate(_preferred_split(days, split_preference), start=1):
+        pool = _candidates(exercises, muscles, equipment, experience)
+        fresh_pool = [item for item in pool if item["name"] not in used_names] or pool
+        selected = random.sample(fresh_pool, min(6 if "Full" in name else 5, len(fresh_pool)))
+        used_names.update(item["name"] for item in selected)
+        plan.append({"day": index, "name": name, "focus": ", ".join(muscles).replace("lats", "back"), "exercises": [{"name": item["name"], "sets_reps": _prescription(goal, item), "muscles": ", ".join(item["primaryMuscles"])} for item in selected]})
+    return plan

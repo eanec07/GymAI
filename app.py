@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import uuid
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, session, url_for
@@ -13,7 +13,7 @@ from nutrition import calculate_nutrition
 from physique import build_physique_path
 from data_sources import source_status
 from gamification import player_status
-from workouts import generate_daily_workout_for_level, generate_workout
+from workouts import generate_daily_workout_for_level, generate_workout, weekly_daily_schedule
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE = BASE_DIR / "sylrix.db"
@@ -61,6 +61,7 @@ def setup_database():
             "training_style": "TEXT NOT NULL DEFAULT ''",
             "equipment_notes": "TEXT NOT NULL DEFAULT ''",
             "limitations": "TEXT NOT NULL DEFAULT ''",
+            "split_preference": "TEXT NOT NULL DEFAULT 'auto'",
         }.items():
             if column not in member_columns:
                 connection.execute(f"ALTER TABLE members ADD COLUMN {column} {definition}")
@@ -189,15 +190,15 @@ def onboarding():
         return redirect(url_for("home"))
     if request.method == "POST":
         try:
-            values = {"name": request.form["name"].strip(), "age": int(request.form["age"]), "sex": request.form["sex"].lower(), "weight": float(request.form["weight"]), "height": float(request.form["height"]), "goal": request.form["goal"].lower(), "days": int(request.form["days"]), "equipment": request.form["equipment"].lower(), "experience": request.form["experience"].lower(), "custom_goal": request.form.get("custom_goal", "").strip()[:500], "training_style": request.form.get("training_style", "").strip()[:100], "equipment_notes": request.form.get("equipment_notes", "").strip()[:500], "limitations": request.form.get("limitations", "").strip()[:500]}
+            values = {"name": request.form["name"].strip(), "age": int(request.form["age"]), "sex": request.form["sex"].lower(), "weight": float(request.form["weight"]), "height": float(request.form["height"]), "goal": request.form["goal"].lower(), "days": int(request.form["days"]), "equipment": request.form["equipment"].lower(), "experience": request.form["experience"].lower(), "custom_goal": request.form.get("custom_goal", "").strip()[:500], "training_style": request.form.get("training_style", "").strip()[:100], "split_preference": request.form.get("split_preference", "auto").strip()[:100], "equipment_notes": request.form.get("equipment_notes", "").strip()[:500], "limitations": request.form.get("limitations", "").strip()[:500]}
             if not values["name"] or not 1 <= values["days"] <= 7 or values["age"] < 13:
                 raise ValueError
         except (KeyError, ValueError):
             flash("Please enter valid profile details. Training days must be from 1 to 7.")
             return render_template("onboarding.html")
         with db_connection() as connection:
-            cursor = connection.execute("""INSERT INTO members (name, age, sex, weight, height, goal, days, equipment, experience, custom_goal, training_style, equipment_notes, limitations)
-                VALUES (:name, :age, :sex, :weight, :height, :goal, :days, :equipment, :experience, :custom_goal, :training_style, :equipment_notes, :limitations)""", values)
+            cursor = connection.execute("""INSERT INTO members (name, age, sex, weight, height, goal, days, equipment, experience, custom_goal, training_style, split_preference, equipment_notes, limitations)
+                VALUES (:name, :age, :sex, :weight, :height, :goal, :days, :equipment, :experience, :custom_goal, :training_style, :split_preference, :equipment_notes, :limitations)""", values)
             connection.execute("UPDATE accounts SET member_id = ? WHERE id = ?", (cursor.lastrowid, account["id"]))
         flash("Your SYLRIX profile is ready.")
         return redirect(url_for("plan"))
@@ -211,7 +212,7 @@ def plan():
         return redirect(url_for("onboarding"))
     plan_goal = f'{member["goal"]} {member["custom_goal"]}'
     plan_equipment = f'{member["equipment"]} {member["equipment_notes"]}'
-    return render_template("plan.html", member=member, workout_plan=generate_workout(plan_equipment, member["experience"], member["days"], plan_goal))
+    return render_template("plan.html", member=member, workout_plan=generate_workout(plan_equipment, member["experience"], member["days"], plan_goal, member["training_style"], member["split_preference"]))
 
 
 @app.route("/log", methods=["GET", "POST"])
@@ -326,7 +327,11 @@ def progress_photo(photo_id):
 @app.route("/daily")
 def daily_workout():
     experience = request.args.get("experience", "beginner")
-    return render_template("daily.html", workout=generate_daily_workout_for_level(experience))
+    try:
+        selected_date = datetime.strptime(request.args.get("date", date.today().isoformat()), "%Y-%m-%d").date()
+    except ValueError:
+        selected_date = date.today()
+    return render_template("daily.html", workout=generate_daily_workout_for_level(experience, selected_date), selected_date=selected_date, week=weekly_daily_schedule(selected_date))
 
 
 @app.route("/logout")
