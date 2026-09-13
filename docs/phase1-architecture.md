@@ -26,3 +26,7 @@ The Flask adapter remains `workouts.py`. This keeps the engine independent of Fl
 2. Route normal member plans through this engine while retaining special calisthenics/functional plans. **Next.**
 3. Add structured exercise substitutions and program/history tables.
 4. Move persistence behind repositories, then migrate SQLite to PostgreSQL when deployment needs it.
+
+## Phase 1.5 customization
+
+`TrainingPreferences` holds optional rep, set, equipment, exercise-count, and programming-mode controls without coupling the engine to the web form. `find_substitutes` returns available alternatives with a normalized suitability score and explanation. `editing.py` offers immutable replacement and prescription edits; callers validate results through `validate_workout` in `validation.py` before saving or displaying them.

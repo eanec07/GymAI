@@ -38,6 +38,19 @@ class Exercise:
 
 
 @dataclass(frozen=True)
+class TrainingPreferences:
+    """Optional programming controls. Empty values use goal-aware defaults."""
+    preferred_rep_range: tuple[int, int] | None = None
+    preferred_sets: int | None = None
+    min_reps: int | None = None
+    max_reps: int | None = None
+    unavailable_equipment: tuple[str, ...] = field(default_factory=tuple)
+    max_exercises_per_session: int | None = None
+    automatic_programming: bool = True
+    manual_customization: bool = False
+
+
+@dataclass(frozen=True)
 class UserProfile:
     goal: TrainingGoal
     experience: str
@@ -48,3 +61,4 @@ class UserProfile:
     duration_minutes: int = 60
     favorite_exercises: tuple[str, ...] = field(default_factory=tuple)
     avoid_exercises: tuple[str, ...] = field(default_factory=tuple)
+    preferences: TrainingPreferences = field(default_factory=TrainingPreferences)

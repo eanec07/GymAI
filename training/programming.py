@@ -23,17 +23,28 @@ def select_split(profile: UserProfile) -> list[tuple[str, tuple[str, ...]]]:
     return [base[index % len(base)] for index in range(profile.days_per_week)]
 
 
-def prescription(goal: TrainingGoal, exercise: Exercise) -> str:
+def prescription(goal: TrainingGoal, exercise: Exercise, profile: UserProfile) -> tuple[int, int, int]:
+    """Return sets, minimum reps, and maximum reps with user preferences applied."""
     if goal == TrainingGoal.STRENGTH:
-        return "4 sets × 4–6 reps" if exercise.mechanic == "compound" else "3 sets × 8–10 reps"
-    if goal in {TrainingGoal.FAT_LOSS, TrainingGoal.ENDURANCE}:
-        return "3 sets × 10–15 reps"
-    return "3–4 sets × 8–12 reps" if exercise.mechanic == "compound" else "3 sets × 10–15 reps"
+        defaults = (4 if exercise.mechanic == "compound" else 3, 4 if exercise.mechanic == "compound" else 8, 6 if exercise.mechanic == "compound" else 10)
+    elif goal in {TrainingGoal.FAT_LOSS, TrainingGoal.ENDURANCE}:
+        defaults = (3, 10, 15 if goal == TrainingGoal.FAT_LOSS else 20)
+    else:
+        defaults = (3 if exercise.mechanic == "isolation" else 4, 8 if exercise.mechanic == "compound" else 10, 12 if exercise.mechanic == "compound" else 15)
+    sets, minimum, maximum = defaults
+    preference = profile.preferences
+    if preference.preferred_rep_range:
+        minimum, maximum = preference.preferred_rep_range
+    minimum = preference.min_reps or minimum
+    maximum = preference.max_reps or maximum
+    return preference.preferred_sets or sets, minimum, maximum
 
 
 def select_session_exercises(exercises: list[Exercise], targets: tuple[str, ...], profile: UserProfile) -> list[Exercise]:
     """Choose distinct primary-target movements, compounds first, without randomness."""
     limit = 3 if profile.duration_minutes <= 30 else 4 if profile.duration_minutes <= 45 else 5 if profile.duration_minutes <= 60 else 6
+    if profile.preferences.max_exercises_per_session:
+        limit = min(limit, profile.preferences.max_exercises_per_session)
     selected: list[Exercise] = []
     for target in targets:
         candidate = next((item for item in ranked_for_target(exercises, target, profile) if item.name not in {chosen.name for chosen in selected}), None)
@@ -53,7 +64,18 @@ def build_weekly_program(exercises: list[Exercise], profile: UserProfile) -> lis
             "day": day,
             "name": name,
             "focus": ", ".join(targets).replace("lats", "back"),
-            "exercises": [{"name": exercise.name, "sets_reps": prescription(profile.goal, exercise), "muscles": ", ".join(exercise.primary_muscles)} for exercise in selected],
+            "exercises": [{
+                "name": exercise.name,
+                "sets_reps": f"{sets} sets × {minimum}–{maximum} reps",
+                "sets": sets,
+                "rep_min": minimum,
+                "rep_max": maximum,
+                "muscles": ", ".join(exercise.primary_muscles),
+                "target_muscle": exercise.primary_muscles[0],
+                "movement_pattern": exercise.movement_pattern,
+                "mechanic": exercise.mechanic,
+                "selection_reason": f"Selected for {exercise.primary_muscles[0]} as a {exercise.movement_pattern} movement; it matches your {profile.goal.value} goal, equipment, and experience level.",
+            } for exercise in selected for sets, minimum, maximum in [prescription(profile.goal, exercise, profile)]],
             "safety_note": "Your stated limitations were used to remove common aggravating movements. Stop if anything hurts and ask a qualified clinician or coach for individualized guidance." if profile.limitations.strip() else "",
         })
     return program
