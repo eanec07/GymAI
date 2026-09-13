@@ -4,5 +4,6 @@ __pycache__/
 gymai.db
 renata_ai.db
 sylrix_ai.db
+sylrix.db
 static/uploads/*
 !static/uploads/.gitkeep
