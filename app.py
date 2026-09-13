@@ -4,7 +4,8 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from flask import Flask, flash, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, session, url_for
+from PIL import Image, UnidentifiedImageError
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -17,7 +18,7 @@ from workouts import generate_daily_workout_for_level, generate_workout
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE = BASE_DIR / "sylrix.db"
 LEGACY_DATABASES = (BASE_DIR / "sylrix_ai.db", BASE_DIR / "renata_ai.db", BASE_DIR / "gymai.db")
-UPLOAD_DIR = BASE_DIR / "static" / "uploads"
+UPLOAD_DIR = BASE_DIR / "uploads"
 ALLOWED_IMAGE_TYPES = {"png", "jpg", "jpeg", "webp"}
 
 app = Flask(__name__)
@@ -26,7 +27,11 @@ app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_DIR)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SYLRIX_COOKIE_SECURE", "0") == "1"
+is_production = os.environ.get("SYLRIX_ENV") == "production"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SYLRIX_COOKIE_SECURE", "1" if is_production else "0") == "1"
+
+if is_production and app.config["SECRET_KEY"] == "change-this-before-deploying":
+    raise RuntimeError("Set SYLRIX_SECRET_KEY before running SYLRIX in production.")
 
 
 def db_connection():
@@ -87,6 +92,28 @@ def require_member():
 
 def image_allowed(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_TYPES
+
+
+def image_is_valid(photo):
+    try:
+        with Image.open(photo.stream) as image:
+            image.verify()
+        photo.stream.seek(0)
+        return True
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError):
+        return False
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; img-src 'self'; base-uri 'self'; frame-ancestors 'none'"
+    if session.get("account_id"):
+        response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @app.route("/")
@@ -270,8 +297,8 @@ def progress():
         return redirect(url_for("onboarding"))
     if request.method == "POST":
         photo = request.files.get("photo")
-        if not photo or not photo.filename or not image_allowed(photo.filename):
-            flash("Upload a PNG, JPG, JPEG, or WEBP image.")
+        if not photo or not photo.filename or not image_allowed(photo.filename) or not image_is_valid(photo):
+            flash("Upload a valid PNG, JPG, JPEG, or WEBP image.")
             return redirect(url_for("progress"))
         filename = f"{uuid.uuid4().hex}_{secure_filename(photo.filename)}"
         photo.save(UPLOAD_DIR / filename)
@@ -282,6 +309,18 @@ def progress():
     with db_connection() as connection:
         photos = connection.execute("SELECT * FROM progress_photos WHERE member_id = ? ORDER BY uploaded_on DESC, id DESC", (member["id"],)).fetchall()
     return render_template("progress.html", member=member, photos=photos)
+
+
+@app.route("/progress/photo/<int:photo_id>")
+def progress_photo(photo_id):
+    member = require_member()
+    if not member:
+        return redirect(url_for("login"))
+    with db_connection() as connection:
+        photo = connection.execute("SELECT filename FROM progress_photos WHERE id = ? AND member_id = ?", (photo_id, member["id"])).fetchone()
+    if not photo:
+        abort(404)
+    return send_from_directory(UPLOAD_DIR, photo["filename"])
 
 
 @app.route("/daily")
@@ -306,4 +345,4 @@ def too_large(_error):
 setup_database()
 
 if __name__ == "__main__":
-    app.run(debug=True, port=int(os.environ.get("PORT", 5001)))
+    app.run(debug=os.environ.get("SYLRIX_DEBUG", "0") == "1", port=int(os.environ.get("PORT", 5001)))
