@@ -201,7 +201,7 @@ def _named_plan(days, title, sessions, goal):
     return [{"day": index + 1, "name": f"{title} — {name}", "focus": focus, "exercises": [{"name": exercise, "sets_reps": prescription, "muscles": focus} for exercise, prescription in exercises]} for index, (name, focus, exercises) in enumerate((sessions * ((days + len(sessions) - 1) // len(sessions)))[:days])]
 
 
-def generate_workout(equipment, experience, days, goal="muscle gain", training_style="", split_preference="auto", limitations="", session_minutes=60, favorite_exercises="", avoid_exercises=""):
+def _legacy_generate_workout(equipment, experience, days, goal="muscle gain", training_style="", split_preference="auto", limitations="", session_minutes=60, favorite_exercises="", avoid_exercises=""):
     """Create a plan from schedule, equipment, goals, preferences and safety filters."""
     days = max(1, min(int(days), 7))
     session_minutes = max(20, min(int(session_minutes or 60), 120))
@@ -231,3 +231,32 @@ def _finalize_plan(plan, exercise_limit, blocked_terms, limitations):
             session["exercises"] = [{"name": "Easy walk + mobility", "sets_reps": "15–20 minutes, easy pace", "muscles": "recovery"}]
         session["safety_note"] = "Your stated limitations were used to remove common aggravating movements. Stop if anything hurts and ask a qualified clinician or coach for individualized guidance." if limitations.strip() else ""
     return plan
+
+
+def generate_workout(equipment, experience, days, goal="muscle gain", training_style="", split_preference="auto", limitations="", session_minutes=60, favorite_exercises="", avoid_exercises=""):
+    """Compatibility adapter from the Flask app to the Phase 1 training engine.
+
+    The specialized calisthenics and functional sessions are retained until they
+    receive equivalent structured exercise data in a later phase.
+    """
+    style = (training_style or "").lower()
+    preference = (split_preference or "auto").lower()
+    if "calisthenics" in style or preference == "calisthenics" or "crossfit" in style or "functional" in style:
+        return _legacy_generate_workout(equipment, experience, days, goal, training_style, split_preference, limitations, session_minutes, favorite_exercises, avoid_exercises)
+
+    from training.exercise_repository import load_exercises
+    from training.models import TrainingGoal, UserProfile
+    from training.programming import build_weekly_program
+
+    profile = UserProfile(
+        goal=TrainingGoal.from_text(goal),
+        experience=experience,
+        days_per_week=max(1, min(int(days), 7)),
+        equipment=equipment,
+        split_preference=preference,
+        limitations=limitations or "",
+        duration_minutes=max(20, min(int(session_minutes or 60), 120)),
+        favorite_exercises=tuple(item.strip() for item in (favorite_exercises or "").split(",") if item.strip()),
+        avoid_exercises=tuple(item.strip() for item in (avoid_exercises or "").split(",") if item.strip()),
+    )
+    return build_weekly_program(load_exercises(), profile)
