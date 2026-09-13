@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from nutrition import calculate_nutrition
@@ -23,6 +24,9 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SYLRIX_SECRET_KEY", os.environ.get("SYLRIX_AI_SECRET_KEY", os.environ.get("RENATA_AI_SECRET_KEY", os.environ.get("GYMAI_SECRET_KEY", "change-this-before-deploying"))))
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_DIR)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SYLRIX_COOKIE_SECURE", "0") == "1"
 
 
 def db_connection():
@@ -44,6 +48,7 @@ def setup_database():
             CREATE TABLE IF NOT EXISTS workout_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, exercise_name TEXT NOT NULL, weight REAL, reps INTEGER, sets INTEGER, notes TEXT, logged_on TEXT NOT NULL, FOREIGN KEY (member_id) REFERENCES members(id));
             CREATE TABLE IF NOT EXISTS progress_photos (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, filename TEXT NOT NULL, caption TEXT, uploaded_on TEXT NOT NULL, FOREIGN KEY (member_id) REFERENCES members(id));
             CREATE TABLE IF NOT EXISTS step_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, steps INTEGER NOT NULL, goal INTEGER NOT NULL DEFAULT 8000, logged_on TEXT NOT NULL, UNIQUE(member_id, logged_on), FOREIGN KEY (member_id) REFERENCES members(id));
+            CREATE TABLE IF NOT EXISTS accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL COLLATE NOCASE UNIQUE, email TEXT NOT NULL COLLATE NOCASE UNIQUE, password_hash TEXT NOT NULL, member_id INTEGER UNIQUE, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (member_id) REFERENCES members(id));
         """)
         member_columns = {row[1] for row in connection.execute("PRAGMA table_info(members)")}
         for column, definition in {
@@ -57,10 +62,20 @@ def setup_database():
 
 
 def current_member():
-    if not session.get("member_id"):
+    account_id = session.get("account_id")
+    with db_connection() as connection:
+        if account_id:
+            return connection.execute("SELECT members.* FROM members JOIN accounts ON accounts.member_id = members.id WHERE accounts.id = ?", (account_id,)).fetchone()
+        if session.get("member_id"):
+            return connection.execute("SELECT * FROM members WHERE id = ?", (session["member_id"],)).fetchone()
+    return None
+
+
+def current_account():
+    if not session.get("account_id"):
         return None
     with db_connection() as connection:
-        return connection.execute("SELECT * FROM members WHERE id = ?", (session["member_id"],)).fetchone()
+        return connection.execute("SELECT * FROM accounts WHERE id = ?", (session["account_id"],)).fetchone()
 
 
 def require_member():
@@ -89,8 +104,62 @@ def home():
     return render_template("dashboard.html", member=member, nutrition=nutrition, recent_logs=recent_logs, status=player_status(log_count, photo_count, step_goals), today_steps=today_steps)
 
 
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if session.get("account_id"):
+        return redirect(url_for("home"))
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        if len(username) < 3 or not username.replace("_", "").replace("-", "").isalnum():
+            flash("Choose a username with 3+ letters, numbers, hyphens, or underscores.")
+        elif "@" not in email or len(email) > 254:
+            flash("Enter a valid email address.")
+        elif len(password) < 12:
+            flash("Use a password with at least 12 characters.")
+        else:
+            try:
+                with db_connection() as connection:
+                    cursor = connection.execute("INSERT INTO accounts (username, email, password_hash) VALUES (?, ?, ?)", (username, email, generate_password_hash(password)))
+                    session.clear()
+                    session["account_id"] = cursor.lastrowid
+                flash("Account created. Now build your player profile.")
+                return redirect(url_for("onboarding"))
+            except sqlite3.IntegrityError:
+                flash("That username or email is already in use.")
+    return render_template("register.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if session.get("account_id"):
+        return redirect(url_for("home"))
+    if request.method == "POST":
+        identity = request.form.get("identity", "").strip()
+        password = request.form.get("password", "")
+        with db_connection() as connection:
+            account = connection.execute("SELECT * FROM accounts WHERE username = ? OR email = ?", (identity, identity.lower())).fetchone()
+        if not account or not check_password_hash(account["password_hash"], password):
+            flash("Incorrect username/email or password.")
+        else:
+            session.clear()
+            session["account_id"] = account["id"]
+            if account["member_id"]:
+                return redirect(url_for("home"))
+            flash("Finish your player profile to unlock your plan.")
+            return redirect(url_for("onboarding"))
+    return render_template("login.html")
+
+
 @app.route("/onboarding", methods=["GET", "POST"])
 def onboarding():
+    account = current_account()
+    if not account:
+        flash("Create an account or sign in before building a profile.")
+        return redirect(url_for("register"))
+    if account["member_id"]:
+        return redirect(url_for("home"))
     if request.method == "POST":
         try:
             values = {"name": request.form["name"].strip(), "age": int(request.form["age"]), "sex": request.form["sex"].lower(), "weight": float(request.form["weight"]), "height": float(request.form["height"]), "goal": request.form["goal"].lower(), "days": int(request.form["days"]), "equipment": request.form["equipment"].lower(), "experience": request.form["experience"].lower(), "custom_goal": request.form.get("custom_goal", "").strip()[:500], "training_style": request.form.get("training_style", "").strip()[:100], "equipment_notes": request.form.get("equipment_notes", "").strip()[:500], "limitations": request.form.get("limitations", "").strip()[:500]}
@@ -102,7 +171,7 @@ def onboarding():
         with db_connection() as connection:
             cursor = connection.execute("""INSERT INTO members (name, age, sex, weight, height, goal, days, equipment, experience, custom_goal, training_style, equipment_notes, limitations)
                 VALUES (:name, :age, :sex, :weight, :height, :goal, :days, :equipment, :experience, :custom_goal, :training_style, :equipment_notes, :limitations)""", values)
-            session["member_id"] = cursor.lastrowid
+            connection.execute("UPDATE accounts SET member_id = ? WHERE id = ?", (cursor.lastrowid, account["id"]))
         flash("Your SYLRIX profile is ready.")
         return redirect(url_for("plan"))
     return render_template("onboarding.html")
