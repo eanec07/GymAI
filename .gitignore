@@ -2,5 +2,6 @@ __pycache__/
 *.py[cod]
 .env
 gymai.db
+renata_ai.db
 static/uploads/*
 !static/uploads/.gitkeep

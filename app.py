@@ -14,12 +14,13 @@ from gamification import player_status
 from workouts import generate_daily_workout_for_level, generate_workout
 
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE = BASE_DIR / "gymai.db"
+DATABASE = BASE_DIR / "renata_ai.db"
+LEGACY_DATABASE = BASE_DIR / "gymai.db"
 UPLOAD_DIR = BASE_DIR / "static" / "uploads"
 ALLOWED_IMAGE_TYPES = {"png", "jpg", "jpeg", "webp"}
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("GYMAI_SECRET_KEY", "change-this-before-deploying")
+app.config["SECRET_KEY"] = os.environ.get("RENATA_AI_SECRET_KEY", os.environ.get("GYMAI_SECRET_KEY", "change-this-before-deploying"))
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_DIR)
 
@@ -31,6 +32,8 @@ def db_connection():
 
 
 def setup_database():
+    if not DATABASE.exists() and LEGACY_DATABASE.exists():
+        LEGACY_DATABASE.rename(DATABASE)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     with db_connection() as connection:
         connection.executescript("""
@@ -97,7 +100,7 @@ def onboarding():
             cursor = connection.execute("""INSERT INTO members (name, age, sex, weight, height, goal, days, equipment, experience, custom_goal, training_style, equipment_notes, limitations)
                 VALUES (:name, :age, :sex, :weight, :height, :goal, :days, :equipment, :experience, :custom_goal, :training_style, :equipment_notes, :limitations)""", values)
             session["member_id"] = cursor.lastrowid
-        flash("Your GymAI profile is ready.")
+        flash("Your Renata AI profile is ready.")
         return redirect(url_for("plan"))
     return render_template("onboarding.html")
 
