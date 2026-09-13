@@ -122,9 +122,14 @@ def add_security_headers(response):
 
 @app.route("/")
 def home():
+    return render_template("home.html")
+
+
+@app.route("/app")
+def app_dashboard():
     member = current_member()
     if not member:
-        return render_template("home.html")
+        return redirect(url_for("login"))
     nutrition = calculate_nutrition(member["age"], member["sex"], member["weight"], member["height"], member["goal"], member["days"])
     with db_connection() as connection:
         recent_logs = connection.execute("SELECT * FROM workout_logs WHERE member_id = ? ORDER BY logged_on DESC, id DESC LIMIT 5", (member["id"],)).fetchall()
@@ -138,7 +143,7 @@ def home():
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if session.get("account_id"):
-        return redirect(url_for("home"))
+        return redirect(url_for("app_dashboard"))
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         email = request.form.get("email", "").strip().lower()
@@ -177,7 +182,7 @@ def login():
             session.clear()
             session["account_id"] = account["id"]
             if account["member_id"]:
-                return redirect(url_for("home"))
+                return redirect(url_for("app_dashboard"))
             flash("Finish your player profile to unlock your plan.")
             return redirect(url_for("onboarding"))
     return render_template("login.html")
@@ -190,7 +195,7 @@ def onboarding():
         flash("Create an account or sign in before building a profile.")
         return redirect(url_for("register"))
     if account["member_id"]:
-        return redirect(url_for("home"))
+        return redirect(url_for("app_dashboard"))
     if request.method == "POST":
         try:
             values = {"name": request.form["name"].strip(), "age": int(request.form["age"]), "sex": request.form["sex"].lower(), "weight": float(request.form["weight"]), "height": float(request.form["height"]), "goal": request.form["goal"].lower(), "days": int(request.form["days"]), "equipment": request.form["equipment"].lower(), "experience": request.form["experience"].lower(), "custom_goal": request.form.get("custom_goal", "").strip()[:500], "training_style": request.form.get("training_style", "").strip()[:100], "split_preference": request.form.get("split_preference", "auto").strip()[:100], "equipment_notes": request.form.get("equipment_notes", "").strip()[:500], "limitations": request.form.get("limitations", "").strip()[:500], "session_minutes": int(request.form.get("session_minutes", 60)), "favorite_exercises": request.form.get("favorite_exercises", "").strip()[:300], "avoid_exercises": request.form.get("avoid_exercises", "").strip()[:300]}
@@ -216,6 +221,19 @@ def plan():
     plan_goal = f'{member["goal"]} {member["custom_goal"]}'
     plan_equipment = f'{member["equipment"]} {member["equipment_notes"]}'
     return render_template("plan.html", member=member, workout_plan=generate_workout(plan_equipment, member["experience"], member["days"], plan_goal, member["training_style"], member["split_preference"], member["limitations"], member["session_minutes"], member["favorite_exercises"], member["avoid_exercises"]))
+
+
+@app.route("/app/workouts")
+def app_workouts():
+    return redirect(url_for("plan"))
+
+
+@app.route("/app/profile")
+def app_profile():
+    member = require_member()
+    if not member:
+        return redirect(url_for("onboarding"))
+    return render_template("profile.html", member=member)
 
 
 @app.route("/log", methods=["GET", "POST"])
@@ -295,6 +313,7 @@ def sources():
 
 
 @app.route("/progress", methods=["GET", "POST"])
+@app.route("/app/progress", methods=["GET", "POST"])
 def progress():
     member = require_member()
     if not member:
