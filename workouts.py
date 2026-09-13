@@ -105,6 +105,17 @@ DAILY_WORKOUTS = {
             ("Hanging Leg Raise", "3 sets × 10–15 reps", "core"),
         ],
     },
+    "elite": {
+        "subtitle": "Elite • about 65–80 minutes • only for experienced lifters with reliable technique and recovery",
+        "exercises": [
+            ("Barbell Back Squat", "5 sets × 3–5 reps", "legs"),
+            ("Barbell Bench Press", "5 sets × 3–5 reps", "chest and triceps"),
+            ("Weighted Pull-Up", "4 sets × 5–8 reps", "back and biceps"),
+            ("Barbell Romanian Deadlift", "4 sets × 6–8 reps", "hamstrings and glutes"),
+            ("Barbell Overhead Press", "3 sets × 5–8 reps", "shoulders"),
+            ("Ab Wheel Rollout", "3 sets × 8–12 reps", "core"),
+        ],
+    },
 }
 
 
