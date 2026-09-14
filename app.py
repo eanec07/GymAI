@@ -42,6 +42,17 @@ CATEGORY_SETUP = {
     "endurance": {"goals": "Build weekly capacity · Prepare for a distance · Improve consistency", "questions": "Weekly mileage, current running frequency, preferred distance, pace if known, and limitations.", "split": "Running frequency plan + simple strength support"},
 }
 
+TRAINING_PREFERENCE_FIELDS = {
+    "powerlifting": (("squat_max", "Squat max / estimated max (lb)", "315", "number"), ("bench_max", "Bench max / estimated max (lb)", "225", "number"), ("deadlift_max", "Deadlift max / estimated max (lb)", "405", "number"), ("weak_lift", "Weakest lift", "Example: bench press", "text"), ("competition_interest", "Competition interest", "None, maybe later, or competing", "text"), ("lift_frequency", "Preferred lift frequency", "Example: bench twice weekly", "text")),
+    "powerbuilding": (("squat_max", "Squat max / estimated max (lb)", "315", "number"), ("bench_max", "Bench max / estimated max (lb)", "225", "number"), ("deadlift_max", "Deadlift max / estimated max (lb)", "405", "number"), ("strength_priority", "Strength priority", "Example: bench press", "text"), ("priority_muscles", "Muscles to emphasize", "Example: shoulders and back", "text"), ("training_emphasis", "Strength vs hypertrophy emphasis", "Example: 60% strength / 40% size", "text")),
+    "bodybuilding": (("priority_muscles", "Priority muscle groups", "Example: chest and shoulders", "text"), ("weak_points", "Weak points", "Example: upper back", "text"), ("volume_preference", "Volume preference", "Low, moderate, or high", "text"), ("preferred_rep_range", "Preferred rep range", "Example: 8–12", "text")),
+    "strength": (("main_lifts", "Main lifts", "Example: squat, bench, deadlift", "text"), ("current_strength", "Current strength", "Example: beginner with a 135 lb bench", "text"), ("strength_goals", "Strength goals", "Example: 225 lb bench", "text"), ("barbell_access", "Barbell access", "Yes or no", "text"), ("rack_access", "Rack access", "Yes or no", "text")),
+    "calisthenics": (("pullup_reps", "Max/current pull-ups", "0", "number"), ("pushup_reps", "Max/current push-ups", "10", "number"), ("dip_reps", "Max/current dips", "0", "number"), ("bodyweight_equipment", "Available equipment", "Pull-up bar, rings, bands", "text"), ("skill_goal", "Skill goal", "Muscle-up, handstand, front lever, planche…", "text")),
+    "crossfit": (("conditioning_level", "Conditioning level", "Beginner, intermediate, or advanced", "text"), ("functional_equipment", "Available functional equipment", "Kettlebells, rower, bike, box, sled, pull-up rig", "text"), ("functional_emphasis", "Training emphasis", "Strength, conditioning, or balanced", "text")),
+    "endurance": (("weekly_mileage", "Current weekly mileage", "15", "number"), ("running_frequency", "Current training frequency", "Example: 3 runs/week", "text"), ("target_distance", "Target distance", "5K, 10K, half marathon…", "text"), ("current_pace", "Current pace", "Example: 10:00 / mile", "text"), ("race_goal", "Race goal", "Example: finish a 10K", "text"), ("longest_session", "Longest recent session", "Example: 5 miles", "text")),
+    "general-fitness": (("primary_goal", "Primary goal", "Strength, energy, fat loss, mobility…", "text"), ("cardio_priority", "Cardio priority", "Low, moderate, or high", "text"), ("body_composition_priority", "Body-composition priority", "Example: lose 15 lb", "text"), ("preferred_cardio", "Preferred cardio", "Walk, run, bike, row…", "text")),
+}
+
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE = BASE_DIR / "sylrix.db"
 LEGACY_DATABASES = (BASE_DIR / "sylrix_ai.db", BASE_DIR / "renata_ai.db", BASE_DIR / "gymai.db")
@@ -83,6 +94,7 @@ def setup_database():
             CREATE TABLE IF NOT EXISTS accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL COLLATE NOCASE UNIQUE, email TEXT NOT NULL COLLATE NOCASE UNIQUE, password_hash TEXT NOT NULL, member_id INTEGER UNIQUE, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (member_id) REFERENCES members(id));
             CREATE TABLE IF NOT EXISTS nutrition_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, food_name TEXT NOT NULL, calories REAL NOT NULL DEFAULT 0, protein REAL NOT NULL DEFAULT 0, carbs REAL NOT NULL DEFAULT 0, fat REAL NOT NULL DEFAULT 0, fiber REAL NOT NULL DEFAULT 0, logged_on TEXT NOT NULL, FOREIGN KEY (member_id) REFERENCES members(id));
             CREATE TABLE IF NOT EXISTS coach_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, role TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (member_id) REFERENCES members(id));
+            CREATE TABLE IF NOT EXISTS training_preferences (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, preference_key TEXT NOT NULL, preference_value TEXT NOT NULL DEFAULT '', UNIQUE(member_id, preference_key), FOREIGN KEY (member_id) REFERENCES members(id));
         """)
         member_columns = {row[1] for row in connection.execute("PRAGMA table_info(members)")}
         for column, definition in {
@@ -121,6 +133,24 @@ def require_member():
     if not member:
         flash("Create your member profile first.")
     return member
+
+
+def valid_training_style(value):
+    return value if value in TRAINING_CATEGORIES else ""
+
+
+def training_preferences_for(member_id):
+    with db_connection() as connection:
+        rows = connection.execute("SELECT preference_key, preference_value FROM training_preferences WHERE member_id = ?", (member_id,)).fetchall()
+    return {row["preference_key"]: row["preference_value"] for row in rows}
+
+
+def save_training_preferences(member_id, style, form):
+    allowed_keys = {key for key, *_field in TRAINING_PREFERENCE_FIELDS.get(style, ())}
+    with db_connection() as connection:
+        for key in allowed_keys:
+            value = form.get(f"preference_{key}", "").strip()[:200]
+            connection.execute("INSERT INTO training_preferences (member_id, preference_key, preference_value) VALUES (?, ?, ?) ON CONFLICT(member_id, preference_key) DO UPDATE SET preference_value = excluded.preference_value", (member_id, key, value))
 
 
 def exercise_slug(name):
@@ -236,8 +266,9 @@ def app_dashboard():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    if request.args.get("style"):
-        session["pending_training_style"] = request.args["style"][:100]
+    requested_style = valid_training_style(request.args.get("style", "").strip())
+    if requested_style:
+        session["pending_training_style"] = requested_style
     if session.get("account_id"):
         return redirect(url_for("app_dashboard"))
     if request.method == "POST":
@@ -254,8 +285,11 @@ def register():
             try:
                 with db_connection() as connection:
                     cursor = connection.execute("INSERT INTO accounts (username, email, password_hash) VALUES (?, ?, ?)", (username, email, generate_password_hash(password)))
+                    pending_style = valid_training_style(session.get("pending_training_style", ""))
                     session.clear()
                     session["account_id"] = cursor.lastrowid
+                    if pending_style:
+                        session["pending_training_style"] = pending_style
                 flash("Account created. Now build your player profile.")
                 return redirect(url_for("onboarding"))
             except sqlite3.IntegrityError:
@@ -294,20 +328,24 @@ def onboarding():
         return redirect(url_for("app_dashboard"))
     if request.method == "POST":
         try:
-            values = {"name": request.form["name"].strip(), "age": int(request.form["age"]), "sex": request.form["sex"].lower(), "weight": float(request.form["weight"]), "height": float(request.form["height"]), "goal": request.form["goal"].lower(), "days": int(request.form["days"]), "equipment": request.form["equipment"].lower(), "experience": request.form["experience"].lower(), "custom_goal": request.form.get("custom_goal", "").strip()[:500], "training_style": (request.form.get("training_style") or session.get("pending_training_style", "")).strip()[:100], "split_preference": request.form.get("split_preference", "auto").strip()[:100], "equipment_notes": request.form.get("equipment_notes", "").strip()[:500], "limitations": request.form.get("limitations", "").strip()[:500], "session_minutes": int(request.form.get("session_minutes", 60)), "favorite_exercises": request.form.get("favorite_exercises", "").strip()[:300], "avoid_exercises": request.form.get("avoid_exercises", "").strip()[:300]}
+            selected_style = valid_training_style(request.form.get("training_style", "") or session.get("pending_training_style", ""))
+            values = {"name": request.form["name"].strip(), "age": int(request.form["age"]), "sex": request.form["sex"].lower(), "weight": float(request.form["weight"]), "height": float(request.form["height"]), "goal": request.form["goal"].lower(), "days": int(request.form["days"]), "equipment": request.form["equipment"].lower(), "experience": request.form["experience"].lower(), "custom_goal": request.form.get("custom_goal", "").strip()[:500], "training_style": selected_style, "split_preference": request.form.get("split_preference", "auto").strip()[:100], "equipment_notes": request.form.get("equipment_notes", "").strip()[:500], "limitations": request.form.get("limitations", "").strip()[:500], "session_minutes": int(request.form.get("session_minutes", 60)), "favorite_exercises": request.form.get("favorite_exercises", "").strip()[:300], "avoid_exercises": request.form.get("avoid_exercises", "").strip()[:300]}
             if not values["name"] or not 1 <= values["days"] <= 7 or values["age"] < 13 or not 20 <= values["session_minutes"] <= 120:
                 raise ValueError
         except (KeyError, ValueError):
             flash("Please enter valid profile details. Training days must be from 1 to 7.")
-            return render_template("onboarding.html")
+            selected_style = valid_training_style(session.get("pending_training_style", ""))
+            return render_template("onboarding.html", selected_training_style=selected_style, selected_setup=CATEGORY_SETUP.get(selected_style), training_fields=TRAINING_PREFERENCE_FIELDS.get(selected_style, ()))
         with db_connection() as connection:
             cursor = connection.execute("""INSERT INTO members (name, age, sex, weight, height, goal, days, equipment, experience, custom_goal, training_style, split_preference, equipment_notes, limitations, session_minutes, favorite_exercises, avoid_exercises)
                 VALUES (:name, :age, :sex, :weight, :height, :goal, :days, :equipment, :experience, :custom_goal, :training_style, :split_preference, :equipment_notes, :limitations, :session_minutes, :favorite_exercises, :avoid_exercises)""", values)
             connection.execute("UPDATE accounts SET member_id = ? WHERE id = ?", (cursor.lastrowid, account["id"]))
+        save_training_preferences(cursor.lastrowid, selected_style, request.form)
         flash("Your SYLRIX profile is ready.")
         session.pop("pending_training_style", None)
         return redirect(url_for("plan"))
-    return render_template("onboarding.html")
+    selected_style = valid_training_style(session.get("pending_training_style", ""))
+    return render_template("onboarding.html", selected_training_style=selected_style, selected_setup=CATEGORY_SETUP.get(selected_style), training_fields=TRAINING_PREFERENCE_FIELDS.get(selected_style, ()))
 
 
 @app.route("/plan")
@@ -317,12 +355,25 @@ def plan():
         return redirect(url_for("onboarding"))
     plan_goal = f'{member["goal"]} {member["custom_goal"]}'
     plan_equipment = f'{member["equipment"]} {member["equipment_notes"]}'
-    return render_template("plan.html", member=member, workout_plan=generate_workout(plan_equipment, member["experience"], member["days"], plan_goal, member["training_style"], member["split_preference"], member["limitations"], member["session_minutes"], member["favorite_exercises"], member["avoid_exercises"]))
+    preferences = training_preferences_for(member["id"])
+    return render_template("plan.html", member=member, workout_plan=generate_workout(plan_equipment, member["experience"], member["days"], plan_goal, member["training_style"], member["split_preference"], member["limitations"], member["session_minutes"], member["favorite_exercises"], member["avoid_exercises"], preferences), training_preferences=preferences)
 
 
 @app.route("/app/workouts")
 def app_workouts():
     return redirect(url_for("plan"))
+
+
+@app.route("/workout/<int:day_number>")
+def active_workout(day_number):
+    member = require_member()
+    if not member:
+        return redirect(url_for("onboarding"))
+    plan = generate_workout(f'{member["equipment"]} {member["equipment_notes"]}', member["experience"], member["days"], f'{member["goal"]} {member["custom_goal"]}', member["training_style"], member["split_preference"], member["limitations"], member["session_minutes"], member["favorite_exercises"], member["avoid_exercises"], training_preferences_for(member["id"]))
+    workout = next((item for item in plan if item["day"] == day_number), None)
+    if not workout:
+        abort(404)
+    return render_template("active_workout.html", member=member, workout=workout)
 
 
 @app.route("/app/profile", methods=["GET", "POST"])
@@ -340,7 +391,8 @@ def app_profile():
             return redirect(url_for("onboarding"))
         if action == "save":
             try:
-                values = (request.form["goal"].lower(), request.form["training_style"][:100], request.form["experience"].lower(), int(request.form["days"]), int(request.form["session_minutes"]), request.form["equipment"].lower(), request.form.get("favorite_exercises", "")[:300], request.form.get("avoid_exercises", "")[:300], member["id"])
+                style = valid_training_style(request.form.get("training_style", ""))
+                values = (request.form["goal"].lower(), style, request.form["experience"].lower(), int(request.form["days"]), int(request.form["session_minutes"]), request.form["equipment"].lower(), request.form.get("favorite_exercises", "")[:300], request.form.get("avoid_exercises", "")[:300], member["id"])
                 if not 1 <= values[3] <= 7 or not 20 <= values[4] <= 120:
                     raise ValueError
             except (KeyError, ValueError):

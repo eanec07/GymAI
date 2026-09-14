@@ -201,22 +201,31 @@ def _named_plan(days, title, sessions, goal):
     return [{"day": index + 1, "name": f"{title} — {name}", "focus": focus, "exercises": [{"name": exercise, "sets_reps": prescription, "muscles": focus} for exercise, prescription in exercises]} for index, (name, focus, exercises) in enumerate((sessions * ((days + len(sessions) - 1) // len(sessions)))[:days])]
 
 
-def _legacy_generate_workout(equipment, experience, days, goal="muscle gain", training_style="", split_preference="auto", limitations="", session_minutes=60, favorite_exercises="", avoid_exercises=""):
+def _legacy_generate_workout(equipment, experience, days, goal="muscle gain", training_style="", split_preference="auto", limitations="", session_minutes=60, favorite_exercises="", avoid_exercises="", training_preferences=None):
     """Create a plan from schedule, equipment, goals, preferences and safety filters."""
     days = max(1, min(int(days), 7))
     session_minutes = max(20, min(int(session_minutes or 60), 120))
     exercise_limit = 3 if session_minutes <= 30 else 4 if session_minutes <= 45 else 5 if session_minutes <= 60 else 6
     blocked_terms = _avoid_terms(limitations, avoid_exercises)
+    training_preferences = training_preferences or {}
     style = training_style.lower()
     if "calisthenics" in style or split_preference.lower() == "calisthenics":
         sessions = [("Push", "chest, shoulders, triceps", [("Push-Up", "4 sets × 8–15 reps"), ("Pike Push-Up", "3 sets × 6–12 reps"), ("Bench Dip", "3 sets × 8–15 reps"), ("Hollow Hold", "3 sets × 20–40 seconds")]), ("Pull", "back, biceps, core", [("Assisted Pull-Up", "4 sets × 5–10 reps"), ("Inverted Row", "4 sets × 8–15 reps"), ("Dead Hang", "3 sets × 20–40 seconds"), ("Hanging Knee Raise", "3 sets × 8–15 reps")]), ("Legs", "legs and core", [("Bodyweight Squat", "4 sets × 12–20 reps"), ("Reverse Lunge", "3 sets × 10 reps each side"), ("Glute Bridge", "3 sets × 15 reps"), ("Calf Raise", "3 sets × 15–25 reps")])]
-        return _finalize_plan(_named_plan(days, "Calisthenics", sessions, goal), exercise_limit, blocked_terms, limitations)
+        plan = _finalize_plan(_named_plan(days, "Calisthenics", sessions, goal), exercise_limit, blocked_terms, limitations)
+        pullups = _preference_number(training_preferences, "pullup_reps")
+        if pullups is not None and pullups < 1:
+            _replace_exercise(plan, "Assisted Pull-Up", "Assisted Pull-Up", "4 sets × 5–8 reps", "Build toward your first strict pull-up with assistance and controlled lowers.")
+        elif pullups is not None and pullups < 5:
+            _replace_exercise(plan, "Assisted Pull-Up", "Negative Pull-Up", "4 sets × 3–5 reps", "Use slow 3–5 second lowers, then add strict reps as they become available.")
+        return plan
     if "crossfit" in style or "functional" in style:
         sessions = [("Engine", "conditioning", [("Rowing Intervals", "5 rounds × 250 m"), ("Kettlebell Swing", "5 rounds × 15 reps"), ("Push-Up", "5 rounds × 10 reps"), ("Farmer Carry", "5 rounds × 40 m")]), ("Strength + WOD", "full body", [("Front Squat", "4 sets × 5 reps"), ("Dumbbell Thruster", "4 rounds × 12 reps"), ("Burpee", "4 rounds × 10 reps"), ("Box Step-Up", "4 rounds × 12 reps")])]
         return _finalize_plan(_named_plan(days, "Functional Training", sessions, goal), exercise_limit, blocked_terms, limitations)
     if "powerlifting" in style:
         sessions = [("Squat", "squat strength + legs", [("Barbell Back Squat", "5 sets × 3–5 reps"), ("Paused Squat", "3 sets × 4–6 reps"), ("Romanian Deadlift", "3 sets × 6–8 reps"), ("Plank", "3 sets × 30–45 seconds")]), ("Bench", "bench strength + upper body", [("Barbell Bench Press", "5 sets × 3–5 reps"), ("Close-Grip Bench Press", "3 sets × 5–8 reps"), ("Barbell Row", "4 sets × 6–8 reps"), ("Triceps Pushdown", "3 sets × 8–12 reps")]), ("Deadlift", "deadlift strength + posterior chain", [("Barbell Deadlift", "4 sets × 3–5 reps"), ("Front Squat", "3 sets × 5–6 reps"), ("Lat Pulldown", "3 sets × 8–10 reps"), ("Hanging Knee Raise", "3 sets × 10–15 reps")])]
-        return _finalize_plan(_named_plan(days, "Powerlifting", sessions, goal), exercise_limit, blocked_terms, limitations)
+        plan = _finalize_plan(_named_plan(days, "Powerlifting", sessions, goal), exercise_limit, blocked_terms, limitations)
+        _apply_max_targets(plan, training_preferences)
+        return plan
     if "powerbuilding" in style:
         sessions = [("Lower Strength", "heavy lower body + size", [("Barbell Back Squat", "4 sets × 4–6 reps"), ("Romanian Deadlift", "3 sets × 6–8 reps"), ("Leg Press", "3 sets × 10–12 reps"), ("Calf Raise", "3 sets × 12–15 reps")]), ("Upper Strength", "heavy upper body + size", [("Barbell Bench Press", "4 sets × 4–6 reps"), ("Barbell Row", "4 sets × 6–8 reps"), ("Overhead Press", "3 sets × 6–8 reps"), ("Dumbbell Curl", "3 sets × 10–12 reps")]), ("Hypertrophy", "muscle-building accessories", [("Incline Dumbbell Press", "3 sets × 8–12 reps"), ("Lat Pulldown", "3 sets × 8–12 reps"), ("Leg Extension", "3 sets × 10–15 reps"), ("Cable Lateral Raise", "3 sets × 12–15 reps")])]
         return _finalize_plan(_named_plan(days, "Powerbuilding", sessions, goal), exercise_limit, blocked_terms, limitations)
@@ -245,7 +254,35 @@ def _finalize_plan(plan, exercise_limit, blocked_terms, limitations):
     return plan
 
 
-def generate_workout(equipment, experience, days, goal="muscle gain", training_style="", split_preference="auto", limitations="", session_minutes=60, favorite_exercises="", avoid_exercises=""):
+def _preference_number(preferences, key):
+    try:
+        return float(preferences.get(key, ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def _replace_exercise(plan, original, replacement, prescription, note):
+    for day in plan:
+        for exercise in day["exercises"]:
+            if exercise["name"] == original:
+                exercise.update(name=replacement, sets_reps=prescription, note=note)
+
+
+def _apply_max_targets(plan, preferences):
+    lifts = (("Barbell Back Squat", "squat_max"), ("Barbell Bench Press", "bench_max"), ("Barbell Deadlift", "deadlift_max"))
+    for exercise_name, key in lifts:
+        maximum = _preference_number(preferences, key)
+        for day in plan:
+            for exercise in day["exercises"]:
+                if exercise["name"] == exercise_name:
+                    if maximum:
+                        target = max(5, round((maximum * .75) / 5) * 5)
+                        exercise["sets_reps"] += f" · Target: {target:g} lb"
+                    else:
+                        exercise["sets_reps"] += " @ RPE 7"
+
+
+def generate_workout(equipment, experience, days, goal="muscle gain", training_style="", split_preference="auto", limitations="", session_minutes=60, favorite_exercises="", avoid_exercises="", training_preferences=None):
     """Compatibility adapter from the Flask app to the Phase 1 training engine.
 
     The specialized calisthenics and functional sessions are retained until they
@@ -254,7 +291,7 @@ def generate_workout(equipment, experience, days, goal="muscle gain", training_s
     style = (training_style or "").lower()
     preference = (split_preference or "auto").lower()
     if any(name in style for name in ("calisthenics", "crossfit", "functional", "powerlifting", "powerbuilding", "bodybuilding", "endurance")) or preference == "calisthenics":
-        return _legacy_generate_workout(equipment, experience, days, goal, training_style, split_preference, limitations, session_minutes, favorite_exercises, avoid_exercises)
+        return _legacy_generate_workout(equipment, experience, days, goal, training_style, split_preference, limitations, session_minutes, favorite_exercises, avoid_exercises, training_preferences)
 
     from training.exercise_repository import load_exercises
     from training.models import TrainingGoal, UserProfile
