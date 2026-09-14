@@ -13,6 +13,7 @@ from nutrition import calculate_nutrition
 from physique import build_physique_path
 from data_sources import source_status
 from workouts import generate_daily_workout_for_level, generate_workout, weekly_daily_schedule
+from services.ai_coach import CoachService, MODEL
 
 TRAINING_CATEGORIES = {
     "bodybuilding": ("Bodybuilding", "Build muscle through balanced hypertrophy training, practical volume, and progressive overload.", "Bodybuilding"),
@@ -75,6 +76,8 @@ def setup_database():
             CREATE TABLE IF NOT EXISTS progress_photos (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, filename TEXT NOT NULL, caption TEXT, uploaded_on TEXT NOT NULL, FOREIGN KEY (member_id) REFERENCES members(id));
             CREATE TABLE IF NOT EXISTS step_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, steps INTEGER NOT NULL, goal INTEGER NOT NULL DEFAULT 8000, logged_on TEXT NOT NULL, UNIQUE(member_id, logged_on), FOREIGN KEY (member_id) REFERENCES members(id));
             CREATE TABLE IF NOT EXISTS accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL COLLATE NOCASE UNIQUE, email TEXT NOT NULL COLLATE NOCASE UNIQUE, password_hash TEXT NOT NULL, member_id INTEGER UNIQUE, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (member_id) REFERENCES members(id));
+            CREATE TABLE IF NOT EXISTS nutrition_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, food_name TEXT NOT NULL, calories REAL NOT NULL DEFAULT 0, protein REAL NOT NULL DEFAULT 0, carbs REAL NOT NULL DEFAULT 0, fat REAL NOT NULL DEFAULT 0, fiber REAL NOT NULL DEFAULT 0, logged_on TEXT NOT NULL, FOREIGN KEY (member_id) REFERENCES members(id));
+            CREATE TABLE IF NOT EXISTS coach_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, role TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (member_id) REFERENCES members(id));
         """)
         member_columns = {row[1] for row in connection.execute("PRAGMA table_info(members)")}
         for column, definition in {
@@ -284,6 +287,27 @@ def app_profile():
                 flash("Preferences saved. Your next plan uses these settings.")
             return redirect(url_for("app_profile"))
     return render_template("profile.html", member=member)
+
+
+@app.route("/app/coach", methods=["GET", "POST"])
+def coach():
+    member = require_member()
+    if not member:
+        return redirect(url_for("login"))
+    service = CoachService(DATABASE)
+    if request.method == "POST" and request.form.get("message", "").strip():
+        message = request.form["message"].strip()[:2000]
+        with db_connection() as connection:
+            connection.execute("INSERT INTO coach_messages (member_id, role, message) VALUES (?, 'user', ?)", (member["id"], message))
+        answer = service.reply(member["id"], message)
+        if answer:
+            with db_connection() as connection:
+                connection.execute("INSERT INTO coach_messages (member_id, role, message) VALUES (?, 'assistant', ?)", (member["id"], answer))
+        else:
+            flash("SYLRIX Coach is not configured yet.")
+    with db_connection() as connection:
+        messages = connection.execute("SELECT role, message, created_at FROM coach_messages WHERE member_id=? ORDER BY id DESC LIMIT 30", (member["id"],)).fetchall()
+    return render_template("coach.html", messages=reversed(messages), configured=service.configured, model=MODEL)
 
 
 @app.route("/log", methods=["GET", "POST"])
