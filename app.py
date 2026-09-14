@@ -262,11 +262,31 @@ def app_workouts():
     return redirect(url_for("plan"))
 
 
-@app.route("/app/profile")
+@app.route("/app/profile", methods=["GET", "POST"])
 def app_profile():
     member = require_member()
     if not member:
         return redirect(url_for("onboarding"))
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "reset_setup" and request.form.get("confirm") == "RESET":
+            with db_connection() as connection:
+                connection.execute("UPDATE accounts SET member_id = NULL WHERE member_id = ?", (member["id"],))
+                connection.execute("DELETE FROM members WHERE id = ?", (member["id"],))
+            flash("Your fitness setup was cleared. Your account remains active.")
+            return redirect(url_for("onboarding"))
+        if action == "save":
+            try:
+                values = (request.form["goal"].lower(), request.form["training_style"][:100], request.form["experience"].lower(), int(request.form["days"]), int(request.form["session_minutes"]), request.form["equipment"].lower(), request.form.get("favorite_exercises", "")[:300], request.form.get("avoid_exercises", "")[:300], member["id"])
+                if not 1 <= values[3] <= 7 or not 20 <= values[4] <= 120:
+                    raise ValueError
+            except (KeyError, ValueError):
+                flash("Use valid training days and session duration.")
+            else:
+                with db_connection() as connection:
+                    connection.execute("UPDATE members SET goal=?, training_style=?, experience=?, days=?, session_minutes=?, equipment=?, favorite_exercises=?, avoid_exercises=? WHERE id=?", values)
+                flash("Preferences saved. Your next plan uses these settings.")
+            return redirect(url_for("app_profile"))
     return render_template("profile.html", member=member)
 
 
