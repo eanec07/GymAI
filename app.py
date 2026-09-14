@@ -18,6 +18,8 @@ from services.ai_coach import CoachService, MODEL
 from training.exercise_repository import load_exercises
 from training.filtering import find_substitutes
 from training.models import TrainingGoal, UserProfile
+from training.progression import get_progression_recommendation
+from training.prs import detect_prs
 from muscles import display_muscle
 
 TRAINING_CATEGORIES = {
@@ -476,9 +478,18 @@ def finish_workout(session_id):
         if incomplete and request.form.get("confirm") != "finish":
             flash(f"{incomplete} set(s) are unfinished. Confirm finishing to save anyway.")
             return redirect(url_for("active_workout", day_number=session_row["workout_day"]))
+        current_sets = connection.execute("SELECT * FROM workout_sets WHERE session_id=? AND completed=1 ORDER BY exercise_order, set_number", (session_id,)).fetchall()
+        historical_sets = connection.execute("SELECT workout_sets.* FROM workout_sets JOIN workout_sessions ON workout_sessions.id=workout_sets.session_id WHERE workout_sessions.member_id=? AND workout_sessions.status='completed' AND workout_sessions.id != ?", (member["id"], session_id)).fetchall()
+        recommendations, pr_events = [], []
+        for name in sorted({item["exercise_name"] for item in current_sets}):
+            current = [dict(item) for item in current_sets if item["exercise_name"] == name]
+            historical = [dict(item) for item in historical_sets if item["exercise_name"] == name]
+            target = next((item["target_reps"] for item in current_sets if item["exercise_name"] == name), "5")
+            recommendations.append((name, get_progression_recommendation(current, f"3 sets × {target} reps", name, session_row["training_style"])))
+            pr_events.extend(detect_prs(name, current, historical))
         connection.execute("UPDATE workout_sessions SET status='completed', completed_at=CURRENT_TIMESTAMP WHERE id=?", (session_id,))
         summary = connection.execute("SELECT COUNT(*) sets_completed, COALESCE(SUM(actual_weight * actual_reps),0) volume FROM workout_sets WHERE session_id=? AND completed=1", (session_id,)).fetchone()
-    return render_template("workout_complete.html", session=session_row, summary=summary)
+    return render_template("workout_complete.html", session=session_row, summary=summary, recommendations=recommendations, pr_events=pr_events)
 
 
 @app.route("/history")
