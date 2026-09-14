@@ -26,6 +26,17 @@ TRAINING_CATEGORIES = {
     "endurance": ("Endurance", "Build steady capacity and athletic consistency for longer efforts.", "Sports performance"),
 }
 
+CATEGORY_SETUP = {
+    "bodybuilding": {"goals": "Prioritize muscle groups · Build balanced size · Bring up weak points", "questions": "Priority muscle groups, preferred split, volume comfort, and rep-range preference.", "split": "Upper / Lower or Push / Pull / Legs"},
+    "powerlifting": {"goals": "Build squat · Build bench press · Build deadlift", "questions": "Current or estimated maxes, competition interest, weak points, and preferred lift frequency.", "split": "3- or 4-day squat / bench / deadlift layout"},
+    "powerbuilding": {"goals": "Build big lifts · Add productive hypertrophy volume", "questions": "Strength targets, muscle priorities, current squat / bench / deadlift numbers, and frequency.", "split": "Upper / Lower strength + hypertrophy"},
+    "crossfit": {"goals": "Improve engine · Build functional strength · Train mixed-modal fitness", "questions": "Conditioning level, barbell access, rower or bike access, kettlebells, pull-up rig, and session duration.", "split": "Alternating engine and strength + conditioning days"},
+    "calisthenics": {"goals": "Stronger basics · Better pull-ups and dips · Skill progress", "questions": "Current pull-up, push-up, and dip ability; pull-up bar, rings, dip bars, bands, and skill goals.", "split": "Push / Pull / Legs or Upper / Lower + skill work"},
+    "strength": {"goals": "Build foundational lifts · Progress with confidence", "questions": "Primary lifts, available rack and barbell, strength target, and preferred frequency.", "split": "Upper / Lower or full-body strength"},
+    "general-fitness": {"goals": "Move better · Feel stronger · Build a sustainable habit", "questions": "Main health goal, days available, session duration, and realistic equipment access.", "split": "Balanced full-body plan"},
+    "endurance": {"goals": "Build weekly capacity · Prepare for a distance · Improve consistency", "questions": "Weekly mileage, current running frequency, preferred distance, pace if known, and limitations.", "split": "Running frequency plan + simple strength support"},
+}
+
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE = BASE_DIR / "sylrix.db"
 LEGACY_DATABASES = (BASE_DIR / "sylrix_ai.db", BASE_DIR / "renata_ai.db", BASE_DIR / "gymai.db")
@@ -142,7 +153,7 @@ def training_category(category):
     if not details:
         abort(404)
     name, description, style = details
-    return render_template("training_category.html", category=category, name=name, description=description, style=style)
+    return render_template("training_category.html", category=category, name=name, description=description, style=style, setup=CATEGORY_SETUP[category])
 
 
 @app.route("/app")

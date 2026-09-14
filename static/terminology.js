@@ -18,4 +18,18 @@ document.addEventListener("DOMContentLoaded", () => {
     card.addEventListener("click", open);
     card.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); } });
   });
+  const gallery = document.querySelector(".training-cards");
+  if (gallery && gallery.children.length < 8) {
+    [{name: "Powerlifting", path: "powerlifting", detail: "Build the total.", image: "mode-strength"}, {name: "CrossFit", path: "crossfit", detail: "Train work capacity.", image: "mode-general"}].forEach((item) => {
+      const card = document.createElement("article");
+      card.className = `mode-card ${item.image}`;
+      card.tabIndex = 0;
+      card.setAttribute("role", "link");
+      card.innerHTML = `<strong>${item.name}</strong><span>${item.detail}</span>`;
+      const open = () => { window.location.href = `/training/${item.path}`; };
+      card.addEventListener("click", open);
+      card.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); } });
+      gallery.append(card);
+    });
+  }
 });
