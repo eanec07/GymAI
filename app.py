@@ -1,4 +1,5 @@
 import os
+import re
 import sqlite3
 import uuid
 from datetime import date, datetime, timedelta
@@ -14,6 +15,10 @@ from physique import build_physique_path
 from data_sources import source_status
 from workouts import generate_daily_workout_for_level, generate_workout, weekly_daily_schedule
 from services.ai_coach import CoachService, MODEL
+from training.exercise_repository import load_exercises
+from training.filtering import find_substitutes
+from training.models import TrainingGoal, UserProfile
+from muscles import display_muscle
 
 TRAINING_CATEGORIES = {
     "bodybuilding": ("Bodybuilding", "Build muscle through balanced hypertrophy training, practical volume, and progressive overload.", "Bodybuilding"),
@@ -118,6 +123,34 @@ def require_member():
     return member
 
 
+def exercise_slug(name):
+    """Produce stable, URL-safe exercise identifiers from library names."""
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def library_profile(member=None):
+    """Use a signed-in athlete's constraints, with safe public defaults."""
+    if not member:
+        return UserProfile(
+            goal=TrainingGoal.HYPERTROPHY,
+            experience="intermediate",
+            days_per_week=3,
+            equipment="full gym",
+        )
+    unavailable = tuple(
+        item.strip().lower() for item in member["equipment_notes"].split(",") if item.strip()
+    )
+    return UserProfile(
+        goal=TrainingGoal.from_text(member["goal"]),
+        experience=member["experience"],
+        days_per_week=member["days"],
+        equipment=f'{member["equipment"]} {member["equipment_notes"]}',
+        limitations=member["limitations"],
+        favorite_exercises=tuple(item.strip() for item in member["favorite_exercises"].split(",") if item.strip()),
+        avoid_exercises=tuple(item.strip() for item in member["avoid_exercises"].split(",") if item.strip()),
+    )
+
+
 def image_allowed(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_TYPES
 
@@ -147,6 +180,23 @@ def add_security_headers(response):
 @app.route("/")
 def home():
     return render_template("home.html")
+
+@app.route("/exercises")
+def exercises():
+    query = request.args.get("q", "").lower().strip()
+    muscle = request.args.get("muscle", "").lower().strip()
+    items = load_exercises()
+    if query: items = [item for item in items if query in item.name.lower()]
+    if muscle: items = [item for item in items if muscle in item.primary_muscles or muscle in item.secondary_muscles]
+    return render_template("exercises.html", exercises=items[:100], query=query, muscle=muscle, muscles=sorted({m for item in load_exercises() for m in item.primary_muscles}), exercise_slug=exercise_slug, display_muscle=display_muscle)
+
+@app.route("/exercises/<exercise_id>")
+def exercise_detail(exercise_id):
+    item = next((item for item in load_exercises() if exercise_slug(item.name) == exercise_id), None)
+    if not item: abort(404)
+    profile = library_profile(current_member())
+    substitutes = find_substitutes(item, load_exercises(), profile.equipment, profile)
+    return render_template("exercise_detail.html", exercise=item, substitutes=substitutes, display_muscle=display_muscle, exercise_slug=exercise_slug, signed_in=bool(current_member()))
 
 
 @app.route("/training/<category>")
