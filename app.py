@@ -12,7 +12,6 @@ from werkzeug.utils import secure_filename
 from nutrition import calculate_nutrition
 from physique import build_physique_path
 from data_sources import source_status
-from gamification import player_status
 from workouts import generate_daily_workout_for_level, generate_workout, weekly_daily_schedule
 
 TRAINING_CATEGORIES = {
@@ -164,11 +163,8 @@ def app_dashboard():
     nutrition = calculate_nutrition(member["age"], member["sex"], member["weight"], member["height"], member["goal"], member["days"])
     with db_connection() as connection:
         recent_logs = connection.execute("SELECT * FROM workout_logs WHERE member_id = ? ORDER BY logged_on DESC, id DESC LIMIT 5", (member["id"],)).fetchall()
-        log_count = connection.execute("SELECT COUNT(*) FROM workout_logs WHERE member_id = ?", (member["id"],)).fetchone()[0]
-        photo_count = connection.execute("SELECT COUNT(*) FROM progress_photos WHERE member_id = ?", (member["id"],)).fetchone()[0]
-        step_goals = connection.execute("SELECT COUNT(*) FROM step_logs WHERE member_id = ? AND steps >= goal", (member["id"],)).fetchone()[0]
         today_steps = connection.execute("SELECT steps, goal FROM step_logs WHERE member_id = ? AND logged_on = ?", (member["id"], date.today().isoformat())).fetchone()
-    return render_template("dashboard.html", member=member, nutrition=nutrition, recent_logs=recent_logs, status=player_status(log_count, photo_count, step_goals), today_steps=today_steps)
+    return render_template("dashboard.html", member=member, nutrition=nutrition, recent_logs=recent_logs, today_steps=today_steps)
 
 
 @app.route("/register", methods=["GET", "POST"])
