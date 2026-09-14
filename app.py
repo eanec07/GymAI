@@ -15,6 +15,17 @@ from data_sources import source_status
 from gamification import player_status
 from workouts import generate_daily_workout_for_level, generate_workout, weekly_daily_schedule
 
+TRAINING_CATEGORIES = {
+    "bodybuilding": ("Bodybuilding", "Build muscle through balanced hypertrophy training, practical volume, and progressive overload.", "Bodybuilding"),
+    "powerlifting": ("Powerlifting", "Build your squat, bench, and deadlift with focused strength progression.", "Powerlifting"),
+    "powerbuilding": ("Powerbuilding", "Combine big-lift strength with enough volume to build a capable physique.", "Strength training"),
+    "crossfit": ("CrossFit-style training", "Develop conditioning and full-body capacity with scalable functional sessions.", "CrossFit / functional fitness"),
+    "calisthenics": ("Calisthenics", "Use bodyweight strength, pull-up progressions, and minimal equipment.", "Calisthenics"),
+    "strength": ("Strength", "Train foundational movements with clear progression and useful rep ranges.", "Strength training"),
+    "general-fitness": ("General fitness", "Build a sustainable routine for strength, movement, and everyday energy.", "Home workouts"),
+    "endurance": ("Endurance", "Build steady capacity and athletic consistency for longer efforts.", "Sports performance"),
+}
+
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE = BASE_DIR / "sylrix.db"
 LEGACY_DATABASES = (BASE_DIR / "sylrix_ai.db", BASE_DIR / "renata_ai.db", BASE_DIR / "gymai.db")
@@ -125,6 +136,15 @@ def home():
     return render_template("home.html")
 
 
+@app.route("/training/<category>")
+def training_category(category):
+    details = TRAINING_CATEGORIES.get(category)
+    if not details:
+        abort(404)
+    name, description, style = details
+    return render_template("training_category.html", category=category, name=name, description=description, style=style)
+
+
 @app.route("/app")
 def app_dashboard():
     member = current_member()
@@ -142,6 +162,8 @@ def app_dashboard():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    if request.args.get("style"):
+        session["pending_training_style"] = request.args["style"][:100]
     if session.get("account_id"):
         return redirect(url_for("app_dashboard"))
     if request.method == "POST":
@@ -198,7 +220,7 @@ def onboarding():
         return redirect(url_for("app_dashboard"))
     if request.method == "POST":
         try:
-            values = {"name": request.form["name"].strip(), "age": int(request.form["age"]), "sex": request.form["sex"].lower(), "weight": float(request.form["weight"]), "height": float(request.form["height"]), "goal": request.form["goal"].lower(), "days": int(request.form["days"]), "equipment": request.form["equipment"].lower(), "experience": request.form["experience"].lower(), "custom_goal": request.form.get("custom_goal", "").strip()[:500], "training_style": request.form.get("training_style", "").strip()[:100], "split_preference": request.form.get("split_preference", "auto").strip()[:100], "equipment_notes": request.form.get("equipment_notes", "").strip()[:500], "limitations": request.form.get("limitations", "").strip()[:500], "session_minutes": int(request.form.get("session_minutes", 60)), "favorite_exercises": request.form.get("favorite_exercises", "").strip()[:300], "avoid_exercises": request.form.get("avoid_exercises", "").strip()[:300]}
+            values = {"name": request.form["name"].strip(), "age": int(request.form["age"]), "sex": request.form["sex"].lower(), "weight": float(request.form["weight"]), "height": float(request.form["height"]), "goal": request.form["goal"].lower(), "days": int(request.form["days"]), "equipment": request.form["equipment"].lower(), "experience": request.form["experience"].lower(), "custom_goal": request.form.get("custom_goal", "").strip()[:500], "training_style": (request.form.get("training_style") or session.get("pending_training_style", "")).strip()[:100], "split_preference": request.form.get("split_preference", "auto").strip()[:100], "equipment_notes": request.form.get("equipment_notes", "").strip()[:500], "limitations": request.form.get("limitations", "").strip()[:500], "session_minutes": int(request.form.get("session_minutes", 60)), "favorite_exercises": request.form.get("favorite_exercises", "").strip()[:300], "avoid_exercises": request.form.get("avoid_exercises", "").strip()[:300]}
             if not values["name"] or not 1 <= values["days"] <= 7 or values["age"] < 13 or not 20 <= values["session_minutes"] <= 120:
                 raise ValueError
         except (KeyError, ValueError):
@@ -209,6 +231,7 @@ def onboarding():
                 VALUES (:name, :age, :sex, :weight, :height, :goal, :days, :equipment, :experience, :custom_goal, :training_style, :split_preference, :equipment_notes, :limitations, :session_minutes, :favorite_exercises, :avoid_exercises)""", values)
             connection.execute("UPDATE accounts SET member_id = ? WHERE id = ?", (cursor.lastrowid, account["id"]))
         flash("Your SYLRIX profile is ready.")
+        session.pop("pending_training_style", None)
         return redirect(url_for("plan"))
     return render_template("onboarding.html")
 
