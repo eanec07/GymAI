@@ -1,4 +1,14 @@
 document.addEventListener("DOMContentLoaded", () => {
+  const brandStyles = document.createElement("link");
+  brandStyles.rel = "stylesheet";
+  brandStyles.href = "/static/brand-lockup.css";
+  document.head.append(brandStyles);
+  const brand = document.querySelector(".site-nav .brand");
+  if (brand) {
+    brand.classList.add("brand-lockup");
+    brand.setAttribute("aria-label", "SYLRIX — Reborn. Reforged. Relentless.");
+    brand.innerHTML = '<img src="/static/assets/sylrix-brand-lockup-v2.png" alt="SYLRIX — Reborn. Reforged. Relentless.">';
+  }
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
