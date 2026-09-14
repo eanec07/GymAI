@@ -205,7 +205,21 @@ def training_category(category):
     if not details:
         abort(404)
     name, description, style = details
-    return render_template("training_category.html", category=category, name=name, description=description, style=style, setup=CATEGORY_SETUP[category])
+    return render_template("training_category.html", category=category, name=name, description=description, style=style, setup=CATEGORY_SETUP[category], member=current_member())
+
+
+@app.route("/training/<category>/select", methods=["POST"])
+def select_training_category(category):
+    """Save only a known training path for an authenticated member."""
+    if category not in TRAINING_CATEGORIES:
+        abort(404)
+    member = require_member()
+    if not member:
+        return redirect(url_for("register", style=category))
+    with db_connection() as connection:
+        connection.execute("UPDATE members SET training_style = ? WHERE id = ?", (category, member["id"]))
+    flash(f"{TRAINING_CATEGORIES[category][0]} is now your active training path.")
+    return redirect(url_for("plan"))
 
 
 @app.route("/app")

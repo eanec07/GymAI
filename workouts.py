@@ -214,6 +214,18 @@ def _legacy_generate_workout(equipment, experience, days, goal="muscle gain", tr
     if "crossfit" in style or "functional" in style:
         sessions = [("Engine", "conditioning", [("Rowing Intervals", "5 rounds × 250 m"), ("Kettlebell Swing", "5 rounds × 15 reps"), ("Push-Up", "5 rounds × 10 reps"), ("Farmer Carry", "5 rounds × 40 m")]), ("Strength + WOD", "full body", [("Front Squat", "4 sets × 5 reps"), ("Dumbbell Thruster", "4 rounds × 12 reps"), ("Burpee", "4 rounds × 10 reps"), ("Box Step-Up", "4 rounds × 12 reps")])]
         return _finalize_plan(_named_plan(days, "Functional Training", sessions, goal), exercise_limit, blocked_terms, limitations)
+    if "powerlifting" in style:
+        sessions = [("Squat", "squat strength + legs", [("Barbell Back Squat", "5 sets × 3–5 reps"), ("Paused Squat", "3 sets × 4–6 reps"), ("Romanian Deadlift", "3 sets × 6–8 reps"), ("Plank", "3 sets × 30–45 seconds")]), ("Bench", "bench strength + upper body", [("Barbell Bench Press", "5 sets × 3–5 reps"), ("Close-Grip Bench Press", "3 sets × 5–8 reps"), ("Barbell Row", "4 sets × 6–8 reps"), ("Triceps Pushdown", "3 sets × 8–12 reps")]), ("Deadlift", "deadlift strength + posterior chain", [("Barbell Deadlift", "4 sets × 3–5 reps"), ("Front Squat", "3 sets × 5–6 reps"), ("Lat Pulldown", "3 sets × 8–10 reps"), ("Hanging Knee Raise", "3 sets × 10–15 reps")])]
+        return _finalize_plan(_named_plan(days, "Powerlifting", sessions, goal), exercise_limit, blocked_terms, limitations)
+    if "powerbuilding" in style:
+        sessions = [("Lower Strength", "heavy lower body + size", [("Barbell Back Squat", "4 sets × 4–6 reps"), ("Romanian Deadlift", "3 sets × 6–8 reps"), ("Leg Press", "3 sets × 10–12 reps"), ("Calf Raise", "3 sets × 12–15 reps")]), ("Upper Strength", "heavy upper body + size", [("Barbell Bench Press", "4 sets × 4–6 reps"), ("Barbell Row", "4 sets × 6–8 reps"), ("Overhead Press", "3 sets × 6–8 reps"), ("Dumbbell Curl", "3 sets × 10–12 reps")]), ("Hypertrophy", "muscle-building accessories", [("Incline Dumbbell Press", "3 sets × 8–12 reps"), ("Lat Pulldown", "3 sets × 8–12 reps"), ("Leg Extension", "3 sets × 10–15 reps"), ("Cable Lateral Raise", "3 sets × 12–15 reps")])]
+        return _finalize_plan(_named_plan(days, "Powerbuilding", sessions, goal), exercise_limit, blocked_terms, limitations)
+    if "bodybuilding" in style:
+        sessions = [("Push", "chest, shoulders, triceps", [("Incline Dumbbell Press", "4 sets × 8–12 reps"), ("Cable Fly", "3 sets × 12–15 reps"), ("Dumbbell Lateral Raise", "4 sets × 12–20 reps"), ("Triceps Pushdown", "3 sets × 10–15 reps")]), ("Pull", "back, rear delts, biceps", [("Lat Pulldown", "4 sets × 8–12 reps"), ("Seated Cable Row", "3 sets × 8–12 reps"), ("Face Pull", "3 sets × 12–15 reps"), ("Dumbbell Curl", "3 sets × 10–15 reps")]), ("Legs", "quads, hamstrings, glutes, calves", [("Leg Press", "4 sets × 10–15 reps"), ("Romanian Deadlift", "3 sets × 8–12 reps"), ("Leg Extension", "3 sets × 12–15 reps"), ("Standing Calf Raise", "4 sets × 10–15 reps")])]
+        return _finalize_plan(_named_plan(days, "Bodybuilding", sessions, goal), exercise_limit, blocked_terms, limitations)
+    if "endurance" in style:
+        sessions = [("Easy Base", "easy aerobic capacity", [("Easy Run or Walk", "30–45 minutes, conversational pace"), ("Glute Bridge", "3 sets × 12 reps"), ("Plank", "3 sets × 30 seconds")]), ("Tempo", "sustainable speed", [("Tempo Run", "20 minutes at comfortably hard pace"), ("Walking Recovery", "10 minutes easy"), ("Bodyweight Split Squat", "3 sets × 10 reps each side")]), ("Intervals", "speed and running economy", [("Run Intervals", "6 rounds × 1 minute hard / 2 minutes easy"), ("Calf Raise", "3 sets × 15 reps"), ("Dead Bug", "3 sets × 10 reps each side")])]
+        return _finalize_plan(_named_plan(days, "Endurance", sessions, goal), exercise_limit, blocked_terms, limitations)
     exercises, plan, used_names = load_exercises(), [], set()
     for index, (name, muscles) in enumerate(_preferred_split(days, split_preference), start=1):
         pool = _candidates(exercises, muscles, equipment, experience, blocked_terms, favorite_exercises)
@@ -241,7 +253,7 @@ def generate_workout(equipment, experience, days, goal="muscle gain", training_s
     """
     style = (training_style or "").lower()
     preference = (split_preference or "auto").lower()
-    if "calisthenics" in style or preference == "calisthenics" or "crossfit" in style or "functional" in style:
+    if any(name in style for name in ("calisthenics", "crossfit", "functional", "powerlifting", "powerbuilding", "bodybuilding", "endurance")) or preference == "calisthenics":
         return _legacy_generate_workout(equipment, experience, days, goal, training_style, split_preference, limitations, session_minutes, favorite_exercises, avoid_exercises)
 
     from training.exercise_repository import load_exercises
