@@ -33,12 +33,12 @@ class CoachServiceTests(unittest.TestCase):
         self.assertEqual(first["training_preferences"]["bench_max"], "315")
         self.assertNotIn("bench_max", second["training_preferences"])
 
-    def test_missing_key_does_not_call_provider(self):
+    def test_missing_key_uses_free_local_coach(self):
         previous = os.environ.pop("OPENAI_API_KEY", None)
         try:
             service = CoachService(self.file.name)
             self.assertFalse(service.configured)
-            self.assertIsNone(service.reply(1, "How is my bench?"))
+            self.assertIn("stronger bench", service.reply(1, "How is my bench?"))
         finally:
             if previous:
                 os.environ["OPENAI_API_KEY"] = previous

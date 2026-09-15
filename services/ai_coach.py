@@ -1,4 +1,4 @@
-"""Server-side Responses API provider plus narrowly scoped SYLRIX data tools."""
+"""SYLRIX Coach providers plus narrowly scoped, member-safe data tools."""
 import json
 import os
 import sqlite3
@@ -10,6 +10,7 @@ from training.models import TrainingGoal, UserProfile
 from training.progression import get_progression_recommendation
 
 MODEL = os.environ.get("SYLRIX_AI_MODEL", "gpt-5.6-terra")
+COACH_MODE = os.environ.get("SYLRIX_COACH_MODE", "local").lower()
 
 TOOL_DEFINITIONS = [
     {"type": "function", "name": name, "description": description, "parameters": {"type": "object", "properties": {"exercise_name": {"type": "string"}, "limit": {"type": "integer"}}}}
@@ -34,7 +35,13 @@ class CoachService:
 
     @property
     def configured(self):
-        return bool(os.environ.get("OPENAI_API_KEY"))
+        """Whether paid OpenAI responses have deliberately been enabled."""
+        return COACH_MODE == "openai" and bool(os.environ.get("OPENAI_API_KEY"))
+
+    @property
+    def local_mode(self):
+        """The free deterministic Coach is always available to signed-in members."""
+        return not self.configured
 
     def _connection(self):
         db = sqlite3.connect(self.database_path)
@@ -55,6 +62,105 @@ class CoachService:
     def _exercise(self, value):
         needle = (value or "").lower()
         return next((item for item in load_exercises() if needle in item.name.lower()), None)
+
+    def _exercise_in_message(self, message):
+        """Find the most specific trusted-library exercise mentioned in a question."""
+        lowered = (message or "").lower().replace("-", " ")
+        matches = [item for item in load_exercises() if item.name.lower() in lowered]
+        aliases = {
+            "bench": "Bench Press", "pull up": "Pull-Up", "pullups": "Pull-Up",
+            "deadlift": "Deadlift", "bulgarian split squat": "Bulgarian Split Squat",
+        }
+        if not matches:
+            for phrase, name in aliases.items():
+                if phrase in lowered:
+                    matches = [item for item in load_exercises() if item.name.lower() == name.lower()]
+                    break
+        return max(matches, key=lambda item: len(item.name), default=None)
+
+    @staticmethod
+    def _format_number(value):
+        return f"{float(value):g}"
+
+    def local_reply(self, member_id, message):
+        """Free rule-based coaching that never sends a request to an AI provider."""
+        question = (message or "").strip()
+        lowered = question.lower()
+        exercise = self._exercise_in_message(question)
+
+        # Safety comes before an ordinary training recommendation.
+        urgent_words = ("chest pain", "trouble breathing", "can't breathe", "numb", "tingling", "sudden weakness", "major swelling")
+        if any(word in lowered for word in urgent_words):
+            return "Stop training and seek urgent medical care now. Those symptoms need an in-person professional assessment."
+        if any(word in lowered for word in ("hurt", "pain", "injury", "injured")):
+            return "I can give general training guidance, but I cannot diagnose an injury. Stop any movement that causes sharp or worsening pain. Consider a qualified clinician or physical therapist, especially if it persists, limits normal movement, or follows a sudden injury."
+
+        if any(word in lowered for word in ("protein", "calorie", "calories", "macros", "eat")):
+            data = self._tool(member_id, "get_nutrition_targets", {})
+            targets = data["targets"]
+            logged = data["today_logged"]
+            if "protein" in lowered:
+                return f"Your current SYLRIX protein target is {targets['protein']} g per day. You have logged {self._format_number(logged['protein'])} g today. Spread it across 3–5 meals when practical."
+            return f"Your current SYLRIX target is about {targets['calories']} calories and {targets['protein']} g protein per day for {targets['goal_type'].lower()}. You have logged {self._format_number(logged['calories'])} calories today."
+
+        if "step" in lowered:
+            steps = self._tool(member_id, "get_steps", {})
+            if isinstance(steps, dict):
+                return "SYLRIX does not have step data logged yet. Add today’s steps on the Steps page and I can use them here."
+            today = steps[0] if steps else None
+            return f"Your most recent step entry is {today['steps']:,} steps against a {today['goal']:,}-step goal on {today['logged_on']}." if today else "SYLRIX does not have step data logged yet."
+
+        if any(word in lowered for word in ("today", "current workout", "training today")):
+            current = self._tool(member_id, "get_today_workout", {})
+            if "message" in current:
+                return "You do not have an active workout yet. Open your plan and choose Start Workout for the day you want to train."
+            names = []
+            for entry in current["sets"]:
+                if entry["exercise_name"] not in names:
+                    names.append(entry["exercise_name"])
+            return f"Your active workout is {current['session']['workout_name']}: " + ", ".join(names) + "."
+
+        if any(word in lowered for word in ("last time", "last workout", "how did i do", "history", "recent progress")):
+            if exercise:
+                records = self._tool(member_id, "get_exercise_history", {"exercise_name": exercise.name, "limit": 3})
+                if isinstance(records, dict):
+                    return f"SYLRIX does not have any completed {exercise.name} sets logged yet. Complete and save a workout first."
+                latest = records[0]
+                weight = latest["actual_weight"]
+                detail = f"{self._format_number(weight)} lb × {latest['actual_reps']}" if weight is not None else f"{latest['actual_reps']} reps"
+                return f"Your latest logged {exercise.name} set was {detail} on {latest['completed_at']}."
+            workouts = self._tool(member_id, "get_recent_workouts", {"limit": 3})
+            if not workouts:
+                return "SYLRIX does not have a completed workout saved yet. Finish an active workout to begin building your history."
+            return "Your recent completed workouts: " + "; ".join(f"{item['workout_name']} ({item['completed_at']})" for item in workouts) + "."
+
+        if any(word in lowered for word in ("increase", "progress", "weight should", "what weight")) and exercise:
+            result = self._tool(member_id, "get_progression", {"exercise_name": exercise.name})
+            return result.get("recommendation", result.get("message", "Log a completed workout first so SYLRIX can calculate a recommendation."))
+
+        if any(word in lowered for word in ("replace", "substitute", "swap")) and exercise:
+            choices = self._tool(member_id, "find_exercise_substitutes", {"exercise_name": exercise.name, "limit": 3})
+            if isinstance(choices, dict):
+                return choices["message"]
+            if not choices:
+                return f"I could not find a suitable local substitute for {exercise.name} with your current equipment and preferences."
+            options = "; ".join(f"{item['exercise']} — {item['reason']}" for item in choices[:3])
+            return f"Possible replacements for {exercise.name}: {options}. Use Replace Exercise during an active workout to apply one."
+
+        if exercise and any(word in lowered for word in ("muscle", "work", "what is", "explain")):
+            data = self._tool(member_id, "find_exercise", {"exercise_name": exercise.name})
+            return f"{data['name']} primarily trains {', '.join(data['primary_muscles'])}. It also involves {', '.join(data['secondary_muscles']) or 'few secondary muscles'}. It is a {data['movement_pattern']} movement using {data['equipment']}."
+
+        if "rpe" in lowered:
+            return "RPE is rate of perceived exertion. RPE 7 usually means you could have completed about 3 more good reps; RPE 8 means about 2 more. Use it to keep effort productive without grinding every set."
+        if "rest" in lowered:
+            return "For heavy compound lifts, rest about 2–4 minutes. For most muscle-building accessory work, 60–120 seconds is a solid starting point. Rest longer if form or performance drops."
+        if "pull" in lowered:
+            return "To improve pull-ups, train a progression you can control: assisted pull-ups or negatives, plus rows and pulldowns if available. Accumulate quality reps 2–3 times each week and gradually reduce assistance."
+        if "bench" in lowered:
+            return "For a stronger bench, practice it consistently, keep your upper back tight, use a controlled touch point, and add small amounts of weight or reps only when your current sets are solid."
+
+        return "I am currently in free local Coach mode. I can help with your plan, workout history, exercise substitutions, nutrition targets, steps, RPE, rest times, pull-ups, and common training questions. Try: “What muscles does bench press work?”"
 
     def _tool(self, member_id, name, arguments):
         with self._connection() as db:
@@ -105,7 +211,7 @@ class CoachService:
 
     def reply(self, member_id, message):
         if not self.configured:
-            return None
+            return self.local_reply(member_id, message)
         try:
             from openai import OpenAI
             with self._connection() as db:
@@ -123,4 +229,5 @@ class CoachService:
             return response.output_text
         except Exception:
             self.last_error = "provider_unavailable"
-            return None
+            # Keep Coach useful during provider outages or exhausted credits.
+            return self.local_reply(member_id, message)

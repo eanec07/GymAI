@@ -551,14 +551,11 @@ def coach():
         with db_connection() as connection:
             connection.execute("INSERT INTO coach_messages (member_id, role, message) VALUES (?, 'user', ?)", (member["id"], message))
         answer = service.reply(member["id"], message)
-        if answer:
-            with db_connection() as connection:
-                connection.execute("INSERT INTO coach_messages (member_id, role, message) VALUES (?, 'assistant', ?)", (member["id"], answer))
-        else:
-            flash("SYLRIX Coach is temporarily unavailable. Your workout tools are still available." if service.configured else "SYLRIX Coach is not configured yet.")
+        with db_connection() as connection:
+            connection.execute("INSERT INTO coach_messages (member_id, role, message) VALUES (?, 'assistant', ?)", (member["id"], answer))
     with db_connection() as connection:
         messages = connection.execute("SELECT role, message, created_at FROM coach_messages WHERE member_id=? ORDER BY id DESC LIMIT 30", (member["id"],)).fetchall()
-    return render_template("coach.html", messages=reversed(messages), configured=service.configured, model=MODEL)
+    return render_template("coach.html", messages=reversed(messages), configured=service.configured, local_mode=service.local_mode, model=MODEL)
 
 
 @app.route("/log", methods=["GET", "POST"])
