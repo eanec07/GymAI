@@ -48,5 +48,7 @@ def load_exercises(path: Path = DATA_FILE) -> list[Exercise]:
             difficulty=record.get("level", "beginner"),
             mechanic=record.get("mechanic") or "isolation",
             category=record["category"],
+            instructions=tuple(record.get("instructions") or ()),
+            images=tuple(record.get("images") or ()),
         ))
     return exercises

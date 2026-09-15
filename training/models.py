@@ -35,6 +35,8 @@ class Exercise:
     difficulty: str
     mechanic: str
     category: str
+    instructions: tuple[str, ...] = field(default_factory=tuple)
+    images: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)

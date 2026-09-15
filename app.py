@@ -2,6 +2,7 @@ import os
 import re
 import sqlite3
 import uuid
+import json
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -21,7 +22,7 @@ from training.filtering import find_substitutes
 from training.models import TrainingGoal, UserProfile
 from training.progression import get_progression_recommendation
 from training.prs import detect_prs
-from muscles import display_muscle
+from muscles import diagram_regions, display_muscle
 
 TRAINING_CATEGORIES = {
     "bodybuilding": ("Bodybuilding", "Build muscle through balanced hypertrophy training, practical volume, and progressive overload.", "Bodybuilding"),
@@ -107,6 +108,7 @@ def setup_database():
             CREATE TABLE IF NOT EXISTS workout_sets (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, exercise_name TEXT NOT NULL, exercise_order INTEGER NOT NULL, set_number INTEGER NOT NULL, target_reps TEXT, target_weight REAL, target_rpe REAL, actual_weight REAL, actual_reps INTEGER, actual_rpe REAL, completed INTEGER NOT NULL DEFAULT 0, notes TEXT NOT NULL DEFAULT '', FOREIGN KEY(session_id) REFERENCES workout_sessions(id));
             CREATE TABLE IF NOT EXISTS session_exercises (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, exercise_order INTEGER NOT NULL, original_exercise_name TEXT NOT NULL, exercise_name TEXT NOT NULL, replaced INTEGER NOT NULL DEFAULT 0, UNIQUE(session_id, exercise_order), FOREIGN KEY(session_id) REFERENCES workout_sessions(id));
             CREATE TABLE IF NOT EXISTS personal_records (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, workout_session_id INTEGER, exercise_name TEXT NOT NULL, pr_type TEXT NOT NULL, value REAL NOT NULL DEFAULT 0, weight REAL, reps INTEGER, estimated_1rm REAL, achieved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(member_id, workout_session_id, exercise_name, pr_type), FOREIGN KEY(member_id) REFERENCES members(id), FOREIGN KEY(workout_session_id) REFERENCES workout_sessions(id));
+            CREATE TABLE IF NOT EXISTS body_weight_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, weight REAL NOT NULL, logged_on TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(member_id, logged_on), FOREIGN KEY(member_id) REFERENCES members(id));
         """)
         member_columns = {row[1] for row in connection.execute("PRAGMA table_info(members)")}
         for column, definition in {
@@ -118,6 +120,7 @@ def setup_database():
             "session_minutes": "INTEGER NOT NULL DEFAULT 60",
             "favorite_exercises": "TEXT NOT NULL DEFAULT ''",
             "avoid_exercises": "TEXT NOT NULL DEFAULT ''",
+            "goal_weight": "REAL",
         }.items():
             if column not in member_columns:
                 connection.execute(f"ALTER TABLE members ADD COLUMN {column} {definition}")
@@ -268,10 +271,15 @@ def home():
 def exercises():
     query = request.args.get("q", "").lower().strip()
     muscle = request.args.get("muscle", "").lower().strip()
+    equipment = request.args.get("equipment", "").lower().strip()
+    difficulty = request.args.get("difficulty", "").lower().strip()
     items = load_exercises()
     if query: items = [item for item in items if query in item.name.lower()]
     if muscle: items = [item for item in items if muscle in item.primary_muscles or muscle in item.secondary_muscles]
-    return render_template("exercises.html", exercises=items[:100], query=query, muscle=muscle, muscles=sorted({m for item in load_exercises() for m in item.primary_muscles}), exercise_slug=exercise_slug, display_muscle=display_muscle)
+    if equipment: items = [item for item in items if item.equipment == equipment]
+    if difficulty: items = [item for item in items if item.difficulty == difficulty]
+    library = load_exercises()
+    return render_template("exercises.html", exercises=items[:100], query=query, muscle=muscle, equipment=equipment, difficulty=difficulty, muscles=sorted({m for item in library for m in item.primary_muscles}), equipment_options=sorted({item.equipment for item in library}), difficulties=sorted({item.difficulty for item in library}), exercise_slug=exercise_slug, display_muscle=display_muscle)
 
 @app.route("/exercises/<exercise_id>")
 def exercise_detail(exercise_id):
@@ -279,7 +287,7 @@ def exercise_detail(exercise_id):
     if not item: abort(404)
     profile = library_profile(current_member())
     substitutes = find_substitutes(item, load_exercises(), profile.equipment, profile)
-    return render_template("exercise_detail.html", exercise=item, substitutes=substitutes, display_muscle=display_muscle, exercise_slug=exercise_slug, signed_in=bool(current_member()))
+    return render_template("exercise_detail.html", exercise=item, substitutes=substitutes, display_muscle=display_muscle, diagram_regions=diagram_regions, exercise_slug=exercise_slug, signed_in=bool(current_member()))
 
 
 @app.route("/training/<category>")
@@ -561,17 +569,26 @@ def app_profile():
         if action == "save":
             try:
                 style = valid_training_style(request.form.get("training_style", ""))
-                values = (request.form["goal"].lower(), style, request.form["experience"].lower(), int(request.form["days"]), int(request.form["session_minutes"]), request.form["equipment"].lower(), request.form.get("favorite_exercises", "")[:300], request.form.get("avoid_exercises", "")[:300], member["id"])
-                if not 1 <= values[3] <= 7 or not 20 <= values[4] <= 120:
+                name = request.form["name"].strip()[:100]
+                username = request.form["username"].strip()[:30]
+                current_weight = float(request.form["weight"])
+                goal_weight_text = request.form.get("goal_weight", "").strip()
+                goal_weight = float(goal_weight_text) if goal_weight_text else None
+                values = (name, current_weight, goal_weight, request.form["goal"].lower(), style, request.form["experience"].lower(), int(request.form["days"]), int(request.form["session_minutes"]), request.form["equipment"].lower(), request.form.get("favorite_exercises", "")[:300], request.form.get("avoid_exercises", "")[:300], member["id"])
+                if not name or len(username) < 3 or not username.replace("_", "").replace("-", "").isalnum() or not 70 <= current_weight <= 700 or (goal_weight is not None and not 70 <= goal_weight <= 700) or not 1 <= values[6] <= 7 or not 20 <= values[7] <= 120:
                     raise ValueError
             except (KeyError, ValueError):
-                flash("Use valid training days and session duration.")
+                flash("Use a valid name, username, weights, training days, and session duration.")
             else:
-                with db_connection() as connection:
-                    connection.execute("UPDATE members SET goal=?, training_style=?, experience=?, days=?, session_minutes=?, equipment=?, favorite_exercises=?, avoid_exercises=? WHERE id=?", values)
-                flash("Preferences saved. Your next plan uses these settings.")
+                try:
+                    with db_connection() as connection:
+                        connection.execute("UPDATE members SET name=?, weight=?, goal_weight=?, goal=?, training_style=?, experience=?, days=?, session_minutes=?, equipment=?, favorite_exercises=?, avoid_exercises=? WHERE id=?", values)
+                        connection.execute("UPDATE accounts SET username=? WHERE id=?", (username, session["account_id"]))
+                    flash("Profile saved. Your next plan uses these settings.")
+                except sqlite3.IntegrityError:
+                    flash("That username is already in use.")
             return redirect(url_for("app_profile"))
-    return render_template("profile.html", member=member)
+    return render_template("profile.html", member=member, account=current_account())
 
 
 @app.route("/app/coach", methods=["GET", "POST"])
@@ -687,7 +704,71 @@ def progress():
         return redirect(url_for("progress"))
     with db_connection() as connection:
         photos = connection.execute("SELECT * FROM progress_photos WHERE member_id = ? ORDER BY uploaded_on DESC, id DESC", (member["id"],)).fetchall()
-    return render_template("progress.html", member=member, photos=photos)
+        weight_logs = connection.execute("SELECT * FROM body_weight_logs WHERE member_id = ? ORDER BY logged_on DESC, id DESC", (member["id"],)).fetchall()
+    chronological_weights = list(reversed(weight_logs))
+    current_weight = weight_logs[0]["weight"] if weight_logs else member["weight"]
+    starting_weight = chronological_weights[0]["weight"] if chronological_weights else member["weight"]
+    return render_template("progress.html", member=member, photos=photos, weight_logs=weight_logs, current_weight=current_weight, starting_weight=starting_weight, weight_change=round(current_weight - starting_weight, 1), weight_chart=[{"date": item["logged_on"], "weight": item["weight"]} for item in chronological_weights], today=date.today().isoformat())
+
+
+def weight_log_values(form):
+    """Validate the small, member-owned body-weight log payload."""
+    weight = float(form["weight"])
+    logged_on = datetime.strptime(form.get("logged_on", date.today().isoformat()), "%Y-%m-%d").date().isoformat()
+    if not 70 <= weight <= 700:
+        raise ValueError
+    return weight, logged_on
+
+
+@app.route("/progress/weight", methods=["POST"])
+def add_body_weight():
+    member = require_member()
+    if not member:
+        return redirect(url_for("login"))
+    try:
+        weight, logged_on = weight_log_values(request.form)
+    except (KeyError, ValueError):
+        flash("Enter a body weight between 70 and 700 lb and a valid date.")
+    else:
+        with db_connection() as connection:
+            connection.execute("INSERT INTO body_weight_logs (member_id, weight, logged_on) VALUES (?, ?, ?) ON CONFLICT(member_id, logged_on) DO UPDATE SET weight=excluded.weight", (member["id"], weight, logged_on))
+        flash("Body weight saved.")
+    return redirect(url_for("progress"))
+
+
+@app.route("/progress/weight/<int:log_id>/edit", methods=["POST"])
+def edit_body_weight(log_id):
+    member = require_member()
+    if not member:
+        return redirect(url_for("login"))
+    try:
+        weight, logged_on = weight_log_values(request.form)
+    except (KeyError, ValueError):
+        flash("Enter a body weight between 70 and 700 lb and a valid date.")
+        return redirect(url_for("progress"))
+    try:
+        with db_connection() as connection:
+            changed = connection.execute("UPDATE body_weight_logs SET weight=?, logged_on=? WHERE id=? AND member_id=?", (weight, logged_on, log_id, member["id"])).rowcount
+        if not changed:
+            abort(404)
+    except sqlite3.IntegrityError:
+        flash("You already have a body-weight entry for that date.")
+    else:
+        flash("Body weight entry updated.")
+    return redirect(url_for("progress"))
+
+
+@app.route("/progress/weight/<int:log_id>/delete", methods=["POST"])
+def delete_body_weight(log_id):
+    member = require_member()
+    if not member:
+        return redirect(url_for("login"))
+    with db_connection() as connection:
+        changed = connection.execute("DELETE FROM body_weight_logs WHERE id=? AND member_id=?", (log_id, member["id"])).rowcount
+    if not changed:
+        abort(404)
+    flash("Body weight entry deleted.")
+    return redirect(url_for("progress"))
 
 
 @app.route("/progress/photo/<int:photo_id>")
