@@ -1,13 +1,16 @@
 """SYLRIX Coach providers plus narrowly scoped, member-safe data tools."""
 import json
 import os
+import re
 import sqlite3
+from contextlib import closing
 
 from nutrition import calculate_nutrition
 from training.exercise_repository import load_exercises
 from training.filtering import find_substitutes
 from training.models import TrainingGoal, UserProfile
 from training.progression import get_progression_recommendation
+from workouts import generate_workout
 
 MODEL = os.environ.get("SYLRIX_AI_MODEL", "gpt-5.6-terra")
 COACH_MODE = os.environ.get("SYLRIX_COACH_MODE", "local").lower()
@@ -20,8 +23,12 @@ TOOL_DEFINITIONS = [
         ("get_recent_workouts", "Get recent completed sessions for the signed-in athlete."),
         ("get_exercise_history", "Get the signed-in athlete's recent performance for an exercise."),
         ("get_progression", "Get deterministic next-session guidance for an exercise."),
+        ("get_pr_history", "Get recent or exercise-specific personal records for the signed-in athlete."),
+        ("get_training_plan", "Get the signed-in athlete's generated weekly SYLRIX training plan."),
         ("get_nutrition_targets", "Get deterministic calorie and macro targets plus today's logged nutrition."),
+        ("get_nutrition_history", "Get bounded recent daily nutrition totals and averages."),
         ("get_steps", "Get today's and recent step totals."),
+        ("get_progress_summary", "Get a deterministic, compact recent athlete progress summary."),
         ("find_exercise", "Find trusted local exercise-library metadata."),
         ("find_exercise_substitutes", "Find equipment-aware substitutes from the local exercise library."),
     )
@@ -79,6 +86,36 @@ class CoachService:
         return max(matches, key=lambda item: len(item.name), default=None)
 
     @staticmethod
+    def _plan_exercise(exercise):
+        prescription = exercise.get("sets_reps", "")
+        weight = re.search(r"Target:\s*([\d.]+)\s*lb", prescription, re.I)
+        rpe = re.search(r"RPE\s*([\d.]+)", prescription, re.I)
+        return {
+            "name": exercise["name"],
+            "sets_reps": prescription,
+            "target_weight": float(weight.group(1)) if weight else None,
+            "target_rpe": float(rpe.group(1)) if rpe else None,
+            "muscles": exercise.get("muscles", ""),
+        }
+
+    def _training_plan(self, db, member):
+        preferences = {
+            row["preference_key"]: row["preference_value"]
+            for row in db.execute("SELECT preference_key, preference_value FROM training_preferences WHERE member_id=?", (member["id"],))
+        }
+        plan = generate_workout(
+            f'{member["equipment"]} {member["equipment_notes"]}', member["experience"], member["days"],
+            f'{member["goal"]} {member["custom_goal"]}', member["training_style"], member["split_preference"],
+            member["limitations"], member["session_minutes"], member["favorite_exercises"],
+            member["avoid_exercises"], preferences,
+        )
+        return [
+            {"day": day["day"], "name": day["name"], "focus": day.get("focus", ""),
+             "exercises": [self._plan_exercise(exercise) for exercise in day["exercises"]]}
+            for day in plan
+        ]
+
+    @staticmethod
     def _format_number(value):
         return f"{float(value):g}"
 
@@ -95,7 +132,41 @@ class CoachService:
         if any(word in lowered for word in ("hurt", "pain", "injury", "injured")):
             return "I can give general training guidance, but I cannot diagnose an injury. Stop any movement that causes sharp or worsening pain. Consider a qualified clinician or physical therapist, especially if it persists, limits normal movement, or follows a sudden injury."
 
+        if any(word in lowered for word in ("pr", "personal record", "personal best")):
+            exercise_query = exercise.name if exercise else next((term for term in ("bench", "squat", "deadlift") if term in lowered), "")
+            records = self._tool(member_id, "get_pr_history", {"exercise_name": exercise_query, "limit": 5})
+            if not records["records"]:
+                return records["message"]
+            if exercise or exercise_query:
+                best = records["best_by_type"]
+                details = []
+                if "weight" in best:
+                    details.append(f"heaviest weight {best['weight']['value']:g} lb")
+                if "e1rm" in best:
+                    details.append(f"estimated 1RM {best['e1rm']['value']:g} lb")
+                return f"Your recorded {(exercise.name if exercise else exercise_query)} PRs: " + ", ".join(details or ["baseline established"]) + "."
+            return "Recent PRs: " + "; ".join(f"{item['exercise_name']} — {item['pr_type']} ({item['achieved_at']})" for item in records["records"]) + "."
+
+        if any(word in lowered for word in ("this week", "my plan", "supposed to train", "weekly plan", "training plan")):
+            plan = self._tool(member_id, "get_training_plan", {})
+            return "Your current weekly plan: " + "; ".join(f"Day {day['day']}: {day['name']}" for day in plan) + "."
+
+        if any(word in lowered for word in ("weekly recap", "how am i doing", "making progress", "getting stronger", "progress summary", "what should i focus")):
+            summary = self._tool(member_id, "get_progress_summary", {})
+            parts = [f"{summary['completed_workouts']} completed workout(s)", f"{summary['training_volume']:g} lb of tracked volume"]
+            if summary["recent_prs"]:
+                parts.append(f"{len(summary['recent_prs'])} recent PR event(s)")
+            if summary["steps"].get("days_logged"):
+                parts.append(f"{summary['steps'].get('average_steps', 0):,} average daily steps")
+            return "Your last 7 days: " + ", ".join(parts) + "."
+
         if any(word in lowered for word in ("protein", "calorie", "calories", "macros", "eat")):
+            if any(word in lowered for word in ("week", "consistent", "been hitting", "history")):
+                history = self._tool(member_id, "get_nutrition_history", {})
+                if not history["daily"]:
+                    return history["message"]
+                average = history["averages"]
+                return f"In your last 7 days, you logged nutrition on {history['days_logged']} day(s). Your average logged protein was {average['protein']:g} g and average calories were {average['calories']:g}."
             data = self._tool(member_id, "get_nutrition_targets", {})
             targets = data["targets"]
             logged = data["today_logged"]
@@ -162,14 +233,17 @@ class CoachService:
 
         return "I am currently in free local Coach mode. I can help with your plan, workout history, exercise substitutions, nutrition targets, steps, RPE, rest times, pull-ups, and common training questions. Try: “What muscles does bench press work?”"
 
-    def _tool(self, member_id, name, arguments):
-        with self._connection() as db:
+    def _tool(self, member_id, name, arguments=None):
+        arguments = arguments or {}
+        with closing(self._connection()) as db:
             member = self._member(db, member_id)
             if not member:
                 return {}
             limit = max(1, min(int(arguments.get("limit", 10) or 10), 30))
             if name == "get_member_profile":
                 return self._profile(db, member_id)
+            if name == "get_training_plan":
+                return self._training_plan(db, member)
             if name == "get_today_workout":
                 session = db.execute("SELECT * FROM workout_sessions WHERE member_id=? AND status='active' ORDER BY started_at DESC LIMIT 1", (member_id,)).fetchone()
                 if not session:
@@ -191,13 +265,68 @@ class CoachService:
                 target = latest[0].get("target_reps") or "5"
                 recommendation = get_progression_recommendation(latest, f"3 sets × {target} reps", exercise, latest[0].get("training_style", ""))
                 return {"recommendation": recommendation.message, "action": recommendation.action}
+            if name == "get_pr_history":
+                exercise = arguments.get("exercise_name", "").strip()
+                query = "SELECT exercise_name, pr_type, value, weight, reps, estimated_1rm, achieved_at FROM personal_records WHERE member_id=?"
+                params = [member_id]
+                if exercise:
+                    query += " AND lower(exercise_name) LIKE '%' || lower(?) || '%'"
+                    params.append(exercise)
+                all_records = [dict(row) for row in db.execute(query, params)]
+                records = [dict(row) for row in db.execute(query + " ORDER BY achieved_at DESC, id DESC LIMIT ?", [*params, limit])]
+                if not records:
+                    return {"message": "No personal records have been established from completed workouts yet.", "records": [], "best_by_type": {}}
+                best = {}
+                for record in all_records:
+                    key = record["pr_type"]
+                    if key not in best or record["value"] > best[key]["value"]:
+                        best[key] = record
+                return {"records": records, "best_by_type": best}
             if name == "get_nutrition_targets":
                 targets = calculate_nutrition(member["age"], member["sex"], member["weight"], member["height"], member["goal"], member["days"])
                 logged = db.execute("SELECT COALESCE(SUM(calories),0) calories, COALESCE(SUM(protein),0) protein, COALESCE(SUM(carbs),0) carbs, COALESCE(SUM(fat),0) fat FROM nutrition_logs WHERE member_id=? AND logged_on=date('now')", (member_id,)).fetchone()
                 return {"targets": targets, "today_logged": dict(logged)}
+            if name == "get_nutrition_history":
+                rows = db.execute(
+                    """SELECT logged_on, COALESCE(SUM(calories), 0) calories, COALESCE(SUM(protein), 0) protein,
+                       COALESCE(SUM(carbs), 0) carbs, COALESCE(SUM(fat), 0) fat, COALESCE(SUM(fiber), 0) fiber
+                       FROM nutrition_logs WHERE member_id=? AND logged_on >= date('now', '-6 days')
+                       GROUP BY logged_on ORDER BY logged_on DESC""", (member_id,)
+                ).fetchall()
+                daily = [dict(row) for row in rows]
+                if not daily:
+                    return {"message": "No nutrition entries have been logged in the last 7 days.", "days_logged": 0, "daily": [], "averages": {}}
+                fields = ("calories", "protein", "carbs", "fat", "fiber")
+                averages = {field: round(sum(row[field] for row in daily) / len(daily), 1) for field in fields}
+                return {"days_logged": len(daily), "daily": daily, "averages": averages}
             if name == "get_steps":
                 rows = db.execute("SELECT steps, goal, logged_on FROM step_logs WHERE member_id=? ORDER BY logged_on DESC LIMIT 7", (member_id,)).fetchall()
                 return [dict(row) for row in rows] or {"message": "No step data logged yet."}
+            if name == "get_progress_summary":
+                workouts = db.execute(
+                    """SELECT COUNT(DISTINCT workout_sessions.id) completed_workouts, COALESCE(SUM(workout_sets.actual_weight * workout_sets.actual_reps), 0) volume
+                       FROM workout_sessions LEFT JOIN workout_sets ON workout_sets.session_id=workout_sessions.id
+                       WHERE workout_sessions.member_id=? AND workout_sessions.status='completed'
+                       AND workout_sessions.completed_at >= datetime('now', '-7 days')""", (member_id,)
+                ).fetchone()
+                recent_prs = [dict(row) for row in db.execute(
+                    "SELECT exercise_name, pr_type, value, achieved_at FROM personal_records WHERE member_id=? AND achieved_at >= datetime('now', '-7 days') ORDER BY achieved_at DESC LIMIT 10", (member_id,)
+                )]
+                step_rows = db.execute("SELECT steps, goal FROM step_logs WHERE member_id=? AND logged_on >= date('now', '-6 days')", (member_id,)).fetchall()
+                steps = {"days_logged": len(step_rows)}
+                if step_rows:
+                    steps.update({"average_steps": round(sum(row["steps"] for row in step_rows) / len(step_rows)), "goals_met": sum(row["steps"] >= row["goal"] for row in step_rows)})
+                nutrition = self._tool(member_id, "get_nutrition_history", {})
+                latest = db.execute(
+                    """SELECT workout_sets.exercise_name, workout_sets.target_reps, workout_sessions.training_style
+                       FROM workout_sets JOIN workout_sessions ON workout_sessions.id=workout_sets.session_id
+                       WHERE workout_sessions.member_id=? AND workout_sessions.status='completed'
+                       ORDER BY workout_sessions.completed_at DESC, workout_sets.id DESC LIMIT 1""", (member_id,)
+                ).fetchone()
+                progression = None
+                if latest:
+                    progression = self._tool(member_id, "get_progression", {"exercise_name": latest["exercise_name"]})
+                return {"period_days": 7, "completed_workouts": workouts["completed_workouts"], "training_volume": workouts["volume"], "recent_prs": recent_prs, "steps": steps, "nutrition": nutrition, "latest_progression": progression}
             if name in {"find_exercise", "find_exercise_substitutes"}:
                 exercise = self._exercise(arguments.get("exercise_name", ""))
                 if not exercise:
@@ -214,7 +343,7 @@ class CoachService:
             return self.local_reply(member_id, message)
         try:
             from openai import OpenAI
-            with self._connection() as db:
+            with closing(self._connection()) as db:
                 history = db.execute("SELECT role, message FROM coach_messages WHERE member_id=? ORDER BY id DESC LIMIT 20", (member_id,)).fetchall()
             context = [{"role": row["role"], "content": row["message"]} for row in reversed(history)]
             if not context or context[-1]["content"] != message:

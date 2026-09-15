@@ -2,6 +2,7 @@ import os
 import re
 import sqlite3
 import uuid
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -74,10 +75,15 @@ if is_production and app.config["SECRET_KEY"] == "change-this-before-deploying":
     raise RuntimeError("Set SYLRIX_SECRET_KEY before running SYLRIX in production.")
 
 
+@contextmanager
 def db_connection():
     connection = sqlite3.connect(DATABASE)
     connection.row_factory = sqlite3.Row
-    return connection
+    try:
+        yield connection
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def setup_database():
@@ -100,6 +106,7 @@ def setup_database():
             CREATE TABLE IF NOT EXISTS workout_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, workout_name TEXT NOT NULL, workout_day INTEGER NOT NULL, training_style TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, completed_at TEXT, status TEXT NOT NULL DEFAULT 'active', FOREIGN KEY(member_id) REFERENCES members(id));
             CREATE TABLE IF NOT EXISTS workout_sets (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, exercise_name TEXT NOT NULL, exercise_order INTEGER NOT NULL, set_number INTEGER NOT NULL, target_reps TEXT, target_weight REAL, target_rpe REAL, actual_weight REAL, actual_reps INTEGER, actual_rpe REAL, completed INTEGER NOT NULL DEFAULT 0, notes TEXT NOT NULL DEFAULT '', FOREIGN KEY(session_id) REFERENCES workout_sessions(id));
             CREATE TABLE IF NOT EXISTS session_exercises (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, exercise_order INTEGER NOT NULL, original_exercise_name TEXT NOT NULL, exercise_name TEXT NOT NULL, replaced INTEGER NOT NULL DEFAULT 0, UNIQUE(session_id, exercise_order), FOREIGN KEY(session_id) REFERENCES workout_sessions(id));
+            CREATE TABLE IF NOT EXISTS personal_records (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, workout_session_id INTEGER, exercise_name TEXT NOT NULL, pr_type TEXT NOT NULL, value REAL NOT NULL DEFAULT 0, weight REAL, reps INTEGER, estimated_1rm REAL, achieved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(member_id, workout_session_id, exercise_name, pr_type), FOREIGN KEY(member_id) REFERENCES members(id), FOREIGN KEY(workout_session_id) REFERENCES workout_sessions(id));
         """)
         member_columns = {row[1] for row in connection.execute("PRAGMA table_info(members)")}
         for column, definition in {
@@ -176,6 +183,27 @@ def workout_set_targets(exercise):
 def session_for_member(session_id, member_id):
     with db_connection() as connection:
         return connection.execute("SELECT * FROM workout_sessions WHERE id = ? AND member_id = ?", (session_id, member_id)).fetchone()
+
+
+def persist_pr_events(connection, member_id, session_id, exercise_name, events, current_sets):
+    """Store detector output once per session without reimplementing PR logic."""
+    completed = [item for item in current_sets if item.get("actual_reps") is not None]
+    weights = [item.get("actual_weight") for item in completed if item.get("actual_weight") is not None]
+    best_weight = max(weights, default=None)
+    reps_at_best_weight = max((item["actual_reps"] for item in completed if item.get("actual_weight") == best_weight), default=None)
+    e1rm_values = [
+        (item.get("actual_weight") or 0) * (1 + item["actual_reps"] / 30)
+        for item in completed if item.get("actual_weight") is not None
+    ]
+    best_e1rm = round(max(e1rm_values), 1) if e1rm_values else None
+    for event in events:
+        value = event.current if event.current is not None else 0
+        connection.execute(
+            """INSERT OR IGNORE INTO personal_records
+               (member_id, workout_session_id, exercise_name, pr_type, value, weight, reps, estimated_1rm)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (member_id, session_id, exercise_name, event.kind, value, best_weight, reps_at_best_weight, best_e1rm),
+        )
 
 
 def exercise_slug(name):
@@ -486,7 +514,9 @@ def finish_workout(session_id):
             historical = [dict(item) for item in historical_sets if item["exercise_name"] == name]
             target = next((item["target_reps"] for item in current_sets if item["exercise_name"] == name), "5")
             recommendations.append((name, get_progression_recommendation(current, f"3 sets × {target} reps", name, session_row["training_style"])))
-            pr_events.extend(detect_prs(name, current, historical))
+            exercise_events = detect_prs(name, current, historical)
+            persist_pr_events(connection, member["id"], session_id, name, exercise_events, current)
+            pr_events.extend(exercise_events)
         connection.execute("UPDATE workout_sessions SET status='completed', completed_at=CURRENT_TIMESTAMP WHERE id=?", (session_id,))
         summary = connection.execute("SELECT COUNT(*) sets_completed, COALESCE(SUM(actual_weight * actual_reps),0) volume FROM workout_sets WHERE session_id=? AND completed=1", (session_id,)).fetchone()
     return render_template("workout_complete.html", session=session_row, summary=summary, recommendations=recommendations, pr_events=pr_events)
