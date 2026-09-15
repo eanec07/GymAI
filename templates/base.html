@@ -1,1 +1,46 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{% block title %}SYLRIX{% endblock %}</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='marketing.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='training-cards.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='app-screens.css') }}"></head><body class="{% block body_class %}{% endblock %}"><nav class="site-nav"><a class="brand" href="{{ url_for('home') }}">SYLRIX</a><button class="nav-toggle" type="button" aria-label="Toggle navigation">Menu</button><div class="nav-links">{% if session.account_id or session.member_id %}<a href="{{ url_for('app_dashboard') }}">Dashboard</a><a href="{{ url_for('app_workouts') }}">Workouts</a><a href="{{ url_for('exercises') }}">Exercises</a><a href="{{ url_for('progress') }}">Progress</a><a href="{{ url_for('coach') }}">Coach</a><a href="{{ url_for('app_profile') }}">Profile</a><a href="{{ url_for('logout') }}">Log out</a>{% else %}<a href="{{ url_for('home') }}">Home</a><a href="{{ url_for('home') }}#features">Features</a><a href="{{ url_for('home') }}#training">Workouts</a><a href="{{ url_for('exercises') }}">Exercises</a><a href="{{ url_for('home') }}#nutrition">Nutrition</a><a href="{{ url_for('home') }}#tracking">Tracking</a><a href="{{ url_for('home') }}#recovery">Recovery</a><a href="{{ url_for('home') }}#about">About</a><a class="nav-login" href="{{ url_for('login') }}">Log in</a><a class="nav-cta" href="{{ url_for('register') }}">Get started</a>{% endif %}</div></nav>{% block shell %}<main>{% for message in get_flashed_messages() %}<div class="flash">{{ message }}</div>{% endfor %}{% block content %}{% endblock %}</main>{% endblock %}<script src="{{ url_for('static', filename='terminology.js') }}"></script><script>document.querySelector('.nav-toggle')?.addEventListener('click',()=>document.querySelector('.site-nav').classList.toggle('open'));</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}SYLRIX.FIT{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='marketing.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='training-cards.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app-screens.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='sylrix-fit.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <header class="site-header">
+    <nav class="site-nav" aria-label="Main navigation">
+      <a class="product-brand" href="{{ url_for('home') }}" aria-label="SYLRIX.FIT home">
+        <span>SYLRIX<span class="brand-dot">.FIT</span></span><small>Intelligent training system</small>
+      </a>
+      <button class="nav-toggle" type="button" aria-controls="site-navigation" aria-expanded="false">Menu</button>
+      <div class="nav-links" id="site-navigation">
+        {% if session.get('account_id') %}
+        <div class="primary-nav">
+          <a class="{% if request.endpoint == 'app_dashboard' %}active{% endif %}" href="{{ url_for('app_dashboard') }}">Dashboard</a>
+          <a class="{% if request.endpoint in ['plan', 'app_workouts', 'active_workout', 'replace_session_exercise'] %}active{% endif %}" href="{{ url_for('plan') }}">Training</a>
+          <a class="{% if request.endpoint in ['exercises', 'exercise_detail'] %}active{% endif %}" href="{{ url_for('exercises') }}">Exercises</a>
+          <a class="{% if request.endpoint == 'coach' %}active{% endif %}" href="{{ url_for('coach') }}">Coach</a>
+          <a class="{% if request.endpoint in ['progress', 'workout_history', 'workout_history_detail'] %}active{% endif %}" href="{{ url_for('progress') }}">Progress</a>
+        </div>
+        <details class="nav-more"><summary>More</summary><div class="more-menu">
+          <a href="{{ url_for('nutrition') }}">Nutrition</a><a href="{{ url_for('steps') }}">Steps</a><a href="{{ url_for('workout_history') }}">History</a><a href="{{ url_for('log_workout') }}">Log workout</a><a href="{{ url_for('app_profile') }}">Profile</a><a href="{{ url_for('logout') }}">Log out</a>
+        </div></details>
+        {% else %}
+        <a href="{{ url_for('home') }}">Home</a><a href="{{ url_for('exercises') }}">Exercises</a><a href="{{ url_for('login') }}">Log in</a><a class="nav-cta" href="{{ url_for('register') }}">Get started</a>
+        {% endif %}
+      </div>
+    </nav>
+  </header>
+  {% block shell %}<main>{% with messages = get_flashed_messages() %}{% if messages %}<div class="flash-stack">{% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}{% block content %}{% endblock %}</main>{% endblock %}
+  <footer class="site-footer"><div><strong>SYLRIX.FIT</strong><span>Built around the work you actually log.</span></div><span>SYLRIX Coach · Your training intelligence</span></footer>
+  <script>document.querySelector('.nav-toggle')?.addEventListener('click',function(){const nav=document.querySelector('#site-navigation'),open=nav.classList.toggle('open');this.setAttribute('aria-expanded',open)});</script>
+</body>
+</html>

@@ -314,7 +314,11 @@ def app_dashboard():
     with db_connection() as connection:
         recent_logs = connection.execute("SELECT * FROM workout_logs WHERE member_id = ? ORDER BY logged_on DESC, id DESC LIMIT 5", (member["id"],)).fetchall()
         today_steps = connection.execute("SELECT steps, goal FROM step_logs WHERE member_id = ? AND logged_on = ?", (member["id"], date.today().isoformat())).fetchone()
-    return render_template("dashboard.html", member=member, nutrition=nutrition, recent_logs=recent_logs, today_steps=today_steps)
+        active_session = connection.execute("SELECT * FROM workout_sessions WHERE member_id = ? AND status = 'active' ORDER BY started_at DESC, id DESC LIMIT 1", (member["id"],)).fetchone()
+        recent_sessions = connection.execute("SELECT workout_name, workout_day, completed_at FROM workout_sessions WHERE member_id = ? AND status = 'completed' ORDER BY completed_at DESC, id DESC LIMIT 3", (member["id"],)).fetchall()
+        latest_pr = connection.execute("SELECT exercise_name, pr_type, achieved_at FROM personal_records WHERE member_id = ? ORDER BY achieved_at DESC, id DESC LIMIT 1", (member["id"],)).fetchone()
+        completed_this_week = connection.execute("SELECT COUNT(*) FROM workout_sessions WHERE member_id = ? AND status = 'completed' AND completed_at >= datetime('now', '-7 days')", (member["id"],)).fetchone()[0]
+    return render_template("dashboard.html", member=member, nutrition=nutrition, recent_logs=recent_logs, today_steps=today_steps, active_session=active_session, recent_sessions=recent_sessions, latest_pr=latest_pr, completed_this_week=completed_this_week)
 
 
 @app.route("/register", methods=["GET", "POST"])
