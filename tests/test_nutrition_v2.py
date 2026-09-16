@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +13,7 @@ from services.nutrition_tracking import daily_nutrition
 
 class NutritionV2Tests(unittest.TestCase):
     def setUp(self):
+        self.today = date.today().isoformat()
         self.directory = tempfile.TemporaryDirectory()
         self.original_database = sylrix.DATABASE
         sylrix.DATABASE = Path(self.directory.name) / "nutrition.db"
@@ -28,19 +30,19 @@ class NutritionV2Tests(unittest.TestCase):
         self.directory.cleanup()
 
     def _food(self, name="Breakfast", protein="30", calories="500"):
-        return {"food_name": name, "serving": "1 serving", "calories": calories, "protein": protein, "carbs": "50", "fat": "12", "fiber": "8", "logged_on": "2026-09-15"}
+        return {"food_name": name, "serving": "1 serving", "calories": calories, "protein": protein, "carbs": "50", "fat": "12", "fiber": "8", "logged_on": self.today}
 
     def test_add_totals_remaining_recent_foods_and_dashboard_are_scoped(self):
         self.assertEqual(self.client.post('/nutrition', data=self._food()).status_code, 302)
         self.client.post('/nutrition', data=self._food('Lunch', '40', '700'))
         with sylrix.db_connection() as db:
-            db.execute("INSERT INTO nutrition_logs (member_id,food_name,calories,protein,carbs,fat,fiber,logged_on) VALUES (?, 'Other food', 900, 90, 1, 1, 1, '2026-09-15')", (self.other_id,))
+            db.execute("INSERT INTO nutrition_logs (member_id,food_name,calories,protein,carbs,fat,fiber,logged_on) VALUES (?, 'Other food', 900, 90, 1, 1, 1, ?)", (self.other_id, self.today))
             member = db.execute("SELECT * FROM members WHERE id=?", (self.member_id,)).fetchone()
-            summary = daily_nutrition(db, member, '2026-09-15')
+            summary = daily_nutrition(db, member, self.today)
         self.assertEqual(summary['consumed']['calories'], 1200)
         self.assertEqual(summary['consumed']['protein'], 70)
         self.assertEqual(summary['remaining']['protein'], summary['targets']['protein'] - 70)
-        page = self.client.get('/nutrition?date=2026-09-15')
+        page = self.client.get(f'/nutrition?date={self.today}')
         self.assertIn(b'Breakfast', page.data); self.assertNotIn(b'Other food', page.data)
         self.assertIn(b'calories remaining', self.client.get('/app').data)
 
@@ -56,7 +58,7 @@ class NutritionV2Tests(unittest.TestCase):
         self.assertEqual(self.client.post(f'/nutrition/{own}/delete', data={'logged_on':'2026-09-15'}).status_code, 302)
 
     def test_weight_sync_and_coach_today_nutrition_are_member_bound(self):
-        self.client.post('/progress/weight', data={'weight':'175.5', 'logged_on':'2026-09-15'})
+        self.client.post('/progress/weight', data={'weight':'175.5', 'logged_on':self.today})
         self.client.post('/nutrition', data=self._food())
         with sylrix.db_connection() as db:
             self.assertEqual(db.execute('SELECT weight FROM members WHERE id=?', (self.member_id,)).fetchone()['weight'], 175.5)

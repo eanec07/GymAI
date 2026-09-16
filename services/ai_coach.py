@@ -9,6 +9,7 @@ from contextlib import closing
 
 from nutrition import calculate_nutrition
 from services.nutrition_tracking import daily_nutrition, recent_foods
+from services.readiness import readiness_for_today, readiness_history, training_recommendation
 from training.exercise_repository import load_exercises
 from training.filtering import find_substitutes
 from training.models import TrainingGoal, UserProfile
@@ -155,6 +156,13 @@ class CoachService:
             return "Stop training and seek urgent medical care now. Those symptoms need an in-person professional assessment."
         if any(word in lowered for word in ("hurt", "pain", "injury", "injured")):
             return "I can give general training guidance, but I cannot diagnose an injury. Stop any movement that causes sharp or worsening pain. Consider a qualified clinician or physical therapist, especially if it persists, limits normal movement, or follows a sudden injury."
+
+        if any(phrase in lowered for phrase in ("readiness", "should i train", "train today", "push harder", "recovery day", "recover today")):
+            recommendation = self._tool(member_id, "get_today_training_recommendation", {})
+            if not recommendation.get("readiness"):
+                return "Start with the quick Readiness check-in so I can give deterministic, non-medical guidance for today’s session."
+            readiness = recommendation["readiness"]
+            return f"Your readiness today is {readiness['score']}/100 ({readiness['classification']}). {recommendation['message']}"
 
         if any(word in lowered for word in ("latest weight", "weight changed", "weight have i", "starting weight", "weigh-in", "weigh in", "weight goal", "from my goal")):
             progress = self._tool(member_id, "get_weight_progress", {})
@@ -328,6 +336,17 @@ class CoachService:
                     return {"message": "No active workout session."}
                 sets = db.execute("SELECT exercise_name, set_number, target_reps, target_weight, target_rpe, actual_weight, actual_reps, completed FROM workout_sets WHERE session_id=? ORDER BY exercise_order, set_number", (session["id"],)).fetchall()
                 return {"session": dict(session), "sets": [dict(row) for row in sets]}
+            if name == "get_today_readiness":
+                readiness = readiness_for_today(db, member_id)
+                return {"readiness": readiness, "message": "No readiness check-in has been logged today." if not readiness else ""}
+            if name == "get_readiness_history":
+                return {"history": readiness_history(db, member_id, limit), "message": "No readiness check-ins have been logged yet." if not readiness_history(db, member_id, 1) else ""}
+            if name == "get_today_training_recommendation":
+                readiness = readiness_for_today(db, member_id)
+                recent_completed = db.execute("SELECT COUNT(*) FROM workout_sessions WHERE member_id=? AND status='completed' AND completed_at >= datetime('now', '-7 days')", (member_id,)).fetchone()[0]
+                has_progression = bool(db.execute("SELECT 1 FROM exercise_progression_state WHERE member_id=? LIMIT 1", (member_id,)).fetchone())
+                recommendation = training_recommendation(readiness, recent_completed, has_progression)
+                return {"readiness": readiness, "recent_completed": recent_completed, **recommendation}
             if name == "get_recent_workouts":
                 rows = db.execute("SELECT workout_name, training_style, completed_at FROM workout_sessions WHERE member_id=? AND status='completed' ORDER BY completed_at DESC LIMIT ?", (member_id, limit)).fetchall()
                 return [dict(row) for row in rows]

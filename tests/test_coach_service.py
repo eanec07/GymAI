@@ -28,6 +28,7 @@ class CoachServiceTests(unittest.TestCase):
                 CREATE TABLE body_weight_logs (id INTEGER PRIMARY KEY, member_id INTEGER, weight REAL, logged_on TEXT);
                 CREATE TABLE coach_messages (id INTEGER PRIMARY KEY, member_id INTEGER, role TEXT, message TEXT);
                 CREATE TABLE exercise_progression_state (id INTEGER PRIMARY KEY, member_id INTEGER, exercise_name TEXT, last_session_id INTEGER, recommended_weight REAL, recommended_reps TEXT, recommended_rpe REAL, progression_action TEXT, reason TEXT, consecutive_misses INTEGER, updated_at TEXT, UNIQUE(member_id, exercise_name));
+                CREATE TABLE daily_readiness (id INTEGER PRIMARY KEY, member_id INTEGER, logged_on TEXT, sleep_hours REAL, sleep_quality INTEGER, energy INTEGER, soreness INTEGER, stress INTEGER, motivation INTEGER, notes TEXT, score INTEGER, classification TEXT);
             """)
             connection.execute("INSERT INTO members VALUES (1, 25, 'male', 180, 70, 'strength', 'powerlifting', 'intermediate', 4, 60, 'full gym', '', '', 'bench press', '', '', 'auto', 170)")
             connection.execute("INSERT INTO members VALUES (2, 30, 'female', 140, 65, 'muscle gain', 'bodybuilding', 'beginner', 3, 45, 'dumbbell', '', '', '', '', '', 'auto', 130)")
@@ -49,6 +50,7 @@ class CoachServiceTests(unittest.TestCase):
             connection.executemany("INSERT INTO step_logs VALUES (?, ?, ?, ?)", [(1, 9000, 8000, today), (2, 3000, 8000, today)])
             connection.execute("INSERT INTO personal_records VALUES (1, 1, 2, 'Bench Press - Powerlifting', 'weight', 235, 235, 5, 274.2, ?)", (today,))
             connection.execute("INSERT INTO exercise_progression_state VALUES (1, 1, 'Bench Press - Powerlifting', 2, 237.5, '5', 8, 'increase', 'Completed all target reps.', 0, ?)", (today,))
+            connection.execute("INSERT INTO daily_readiness VALUES (1, 1, ?, 8, 5, 5, 1, 1, 5, '', 100, 'High')", (today,))
             connection.executemany("INSERT INTO body_weight_logs VALUES (?, ?, ?, ?)", [(1, 1, 184, '2026-09-01'), (2, 1, 180, '2026-09-15'), (3, 2, 140, '2026-09-15')])
             connection.commit()
         finally:
@@ -121,6 +123,16 @@ class CoachServiceTests(unittest.TestCase):
         self.assertEqual(weight["latest_weight"], 180)
         self.assertEqual(weight["change"], -4)
         self.assertEqual(workouts["sessions"][0]["workout_name"], "Powerlifting — Bench")
+
+    def test_readiness_tools_are_member_scoped_and_local_coach_uses_them(self):
+        bound = CoachService(self.file.name, 1)
+        own = bound.tools.execute("get_today_readiness", {"member_id": 2})
+        other = CoachService(self.file.name, 2).tools.execute("get_today_readiness", {})
+        guidance = bound.tools.execute("get_today_training_recommendation", {})
+        self.assertEqual(own["readiness"]["score"], 100)
+        self.assertIsNone(other["readiness"])
+        self.assertEqual(guidance["action"], "train_as_planned")
+        self.assertIn("100/100", bound.reply("Should I train today?"))
 
     def test_exercise_search_and_invalid_tool_are_safe(self):
         results = self.service._tool(1, "search_exercises", {"equipment": "dumbbell", "limit": 3})
