@@ -107,8 +107,8 @@ def setup_database():
             CREATE TABLE IF NOT EXISTS coach_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, role TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (member_id) REFERENCES members(id));
             CREATE TABLE IF NOT EXISTS training_preferences (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, preference_key TEXT NOT NULL, preference_value TEXT NOT NULL DEFAULT '', UNIQUE(member_id, preference_key), FOREIGN KEY (member_id) REFERENCES members(id));
             CREATE TABLE IF NOT EXISTS workout_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, workout_name TEXT NOT NULL, workout_day INTEGER NOT NULL, training_style TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, completed_at TEXT, status TEXT NOT NULL DEFAULT 'active', FOREIGN KEY(member_id) REFERENCES members(id));
-            CREATE TABLE IF NOT EXISTS workout_sets (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, exercise_name TEXT NOT NULL, exercise_order INTEGER NOT NULL, set_number INTEGER NOT NULL, target_reps TEXT, target_weight REAL, target_rpe REAL, actual_weight REAL, actual_reps INTEGER, actual_rpe REAL, completed INTEGER NOT NULL DEFAULT 0, notes TEXT NOT NULL DEFAULT '', FOREIGN KEY(session_id) REFERENCES workout_sessions(id));
-            CREATE TABLE IF NOT EXISTS session_exercises (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, exercise_order INTEGER NOT NULL, original_exercise_name TEXT NOT NULL, exercise_name TEXT NOT NULL, replaced INTEGER NOT NULL DEFAULT 0, UNIQUE(session_id, exercise_order), FOREIGN KEY(session_id) REFERENCES workout_sessions(id));
+            CREATE TABLE IF NOT EXISTS workout_sets (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, exercise_name TEXT NOT NULL, exercise_order INTEGER NOT NULL, set_number INTEGER NOT NULL, target_reps TEXT, target_weight REAL, target_rpe REAL, actual_weight REAL, actual_reps INTEGER, actual_rpe REAL, completed INTEGER NOT NULL DEFAULT 0, notes TEXT NOT NULL DEFAULT '', is_warmup INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(session_id) REFERENCES workout_sessions(id));
+            CREATE TABLE IF NOT EXISTS session_exercises (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, exercise_order INTEGER NOT NULL, original_exercise_name TEXT NOT NULL, exercise_name TEXT NOT NULL, replaced INTEGER NOT NULL DEFAULT 0, notes TEXT NOT NULL DEFAULT '', UNIQUE(session_id, exercise_order), FOREIGN KEY(session_id) REFERENCES workout_sessions(id));
             CREATE TABLE IF NOT EXISTS personal_records (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, workout_session_id INTEGER, exercise_name TEXT NOT NULL, pr_type TEXT NOT NULL, value REAL NOT NULL DEFAULT 0, weight REAL, reps INTEGER, estimated_1rm REAL, achieved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(member_id, workout_session_id, exercise_name, pr_type), FOREIGN KEY(member_id) REFERENCES members(id), FOREIGN KEY(workout_session_id) REFERENCES workout_sessions(id));
             CREATE TABLE IF NOT EXISTS body_weight_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, weight REAL NOT NULL, logged_on TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(member_id, logged_on), FOREIGN KEY(member_id) REFERENCES members(id));
             CREATE TABLE IF NOT EXISTS exercise_progression_state (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, exercise_name TEXT NOT NULL, last_session_id INTEGER, recommended_weight REAL, recommended_reps TEXT, recommended_rpe REAL, progression_action TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', consecutive_misses INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(member_id, exercise_name), FOREIGN KEY(member_id) REFERENCES members(id), FOREIGN KEY(last_session_id) REFERENCES workout_sessions(id));
@@ -124,9 +124,16 @@ def setup_database():
             "favorite_exercises": "TEXT NOT NULL DEFAULT ''",
             "avoid_exercises": "TEXT NOT NULL DEFAULT ''",
             "goal_weight": "REAL",
+            "auto_rest_timer": "INTEGER NOT NULL DEFAULT 1",
         }.items():
             if column not in member_columns:
                 connection.execute(f"ALTER TABLE members ADD COLUMN {column} {definition}")
+        set_columns = {row[1] for row in connection.execute("PRAGMA table_info(workout_sets)")}
+        if "is_warmup" not in set_columns:
+            connection.execute("ALTER TABLE workout_sets ADD COLUMN is_warmup INTEGER NOT NULL DEFAULT 0")
+        exercise_columns = {row[1] for row in connection.execute("PRAGMA table_info(session_exercises)")}
+        if "notes" not in exercise_columns:
+            connection.execute("ALTER TABLE session_exercises ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
         nutrition_columns = {row[1] for row in connection.execute("PRAGMA table_info(nutrition_logs)")}
         if "serving" not in nutrition_columns:
             connection.execute("ALTER TABLE nutrition_logs ADD COLUMN serving TEXT NOT NULL DEFAULT ''")
@@ -190,6 +197,13 @@ def workout_set_targets(exercise):
     # A range such as 3–5 uses its top end as the deterministic progression target.
     rep_numbers = re.findall(r"\d+", rep_text)
     return count, (rep_numbers[-1] if rep_numbers else ""), (float(weight.group(1)) if weight else None), (float(rpe.group(1)) if rpe else None)
+
+
+def warmup_targets(exercise_name, target_weight):
+    """Conservative optional warm-ups for common loaded compound movements."""
+    if not target_weight or not any(term in exercise_name.lower() for term in ("squat", "bench", "deadlift", "press", "row")):
+        return []
+    return [(round(target_weight * .5 / 5) * 5, "5"), (round(target_weight * .7 / 5) * 5, "3")]
 
 
 def session_for_member(session_id, member_id):
@@ -459,10 +473,12 @@ def active_workout(day_number):
             for order, exercise in enumerate(workout["exercises"], start=1):
                 connection.execute("INSERT INTO session_exercises (session_id, exercise_order, original_exercise_name, exercise_name) VALUES (?, ?, ?, ?)", (session_id, order, exercise["name"], exercise["name"]))
                 count, reps, weight, rpe = workout_set_targets(exercise)
+                for warmup_number, (warmup_weight, warmup_reps) in enumerate(warmup_targets(exercise["name"], weight), start=1):
+                    connection.execute("INSERT INTO workout_sets (session_id, exercise_name, exercise_order, set_number, target_reps, target_weight, is_warmup) VALUES (?, ?, ?, ?, ?, ?, 1)", (session_id, exercise["name"], order, -warmup_number, warmup_reps, warmup_weight))
                 for set_number in range(1, count + 1):
                     connection.execute("INSERT INTO workout_sets (session_id, exercise_name, exercise_order, set_number, target_reps, target_weight, target_rpe) VALUES (?, ?, ?, ?, ?, ?, ?)", (session_id, exercise["name"], order, set_number, reps, weight, rpe))
             active = connection.execute("SELECT * FROM workout_sessions WHERE id=?", (session_id,)).fetchone()
-        sets = connection.execute("SELECT * FROM workout_sets WHERE session_id=? ORDER BY exercise_order, set_number", (active["id"],)).fetchall()
+        sets = connection.execute("SELECT * FROM workout_sets WHERE session_id=? ORDER BY exercise_order, is_warmup DESC, set_number", (active["id"],)).fetchall()
         overrides = connection.execute("SELECT * FROM session_exercises WHERE session_id=? ORDER BY exercise_order", (active["id"],)).fetchall()
         previous = connection.execute("SELECT exercise_name, actual_weight, actual_reps FROM workout_sets JOIN workout_sessions ON workout_sessions.id=workout_sets.session_id WHERE workout_sessions.member_id=? AND workout_sessions.status='completed' AND actual_reps IS NOT NULL ORDER BY workout_sets.id DESC", (member["id"],)).fetchall()
     by_exercise = {}
@@ -474,7 +490,10 @@ def active_workout(day_number):
         if index < len(overrides):
             exercise["original_name"] = overrides[index]["original_exercise_name"]
             exercise["name"] = overrides[index]["exercise_name"]
-    return render_template("active_workout.html", member=member, workout=workout, workout_session=active, sets_by_exercise=by_exercise, previous_by_exercise=previous_by_exercise, overrides=overrides)
+    completed_sets = sum(item["completed"] for item in sets if not item["is_warmup"])
+    working_sets = sum(not item["is_warmup"] for item in sets)
+    completed_exercises = len({item["exercise_order"] for item in sets if item["completed"] and not item["is_warmup"]})
+    return render_template("active_workout.html", member=member, workout=workout, workout_session=active, sets_by_exercise=by_exercise, previous_by_exercise=previous_by_exercise, overrides=overrides, completed_sets=completed_sets, working_sets=working_sets, completed_exercises=completed_exercises)
 
 
 @app.route("/workout/session/<int:session_id>/exercise/<int:exercise_order>/replace", methods=["GET", "POST"])
@@ -503,7 +522,8 @@ def replace_session_exercise(session_id, exercise_order):
 @app.route("/workout/session/<int:session_id>/set/<int:set_id>", methods=["POST"])
 def save_workout_set(session_id, set_id):
     member = require_member()
-    if not member or not session_for_member(session_id, member["id"]):
+    session_row = session_for_member(session_id, member["id"]) if member else None
+    if not session_row or session_row["status"] != "active":
         abort(404)
     try:
         weight = request.form.get("weight", "").strip()
@@ -521,18 +541,29 @@ def save_workout_set(session_id, set_id):
     return redirect(request.referrer or url_for("app_dashboard"))
 
 
+@app.route("/workout/session/<int:session_id>/exercise/<int:exercise_order>/note", methods=["POST"])
+def save_exercise_note(session_id, exercise_order):
+    member = require_member()
+    session_row = session_for_member(session_id, member["id"]) if member else None
+    if not session_row or session_row["status"] != "active": abort(404)
+    with db_connection() as connection:
+        changed = connection.execute("UPDATE session_exercises SET notes=? WHERE session_id=? AND exercise_order=?", (request.form.get("notes", "").strip()[:1000], session_id, exercise_order)).rowcount
+    if not changed: abort(404)
+    return redirect(url_for("active_workout", day_number=session_row["workout_day"]))
+
+
 @app.route("/workout/session/<int:session_id>/finish", methods=["POST"])
 def finish_workout(session_id):
     member = require_member()
     session_row = session_for_member(session_id, member["id"]) if member else None
     if not session_row: abort(404)
     with db_connection() as connection:
-        incomplete = connection.execute("SELECT COUNT(*) FROM workout_sets WHERE session_id=? AND completed=0", (session_id,)).fetchone()[0]
+        incomplete = connection.execute("SELECT COUNT(*) FROM workout_sets WHERE session_id=? AND completed=0 AND is_warmup=0", (session_id,)).fetchone()[0]
         if incomplete and request.form.get("confirm") != "finish":
             flash(f"{incomplete} set(s) are unfinished. Confirm finishing to save anyway.")
             return redirect(url_for("active_workout", day_number=session_row["workout_day"]))
-        current_sets = connection.execute("SELECT * FROM workout_sets WHERE session_id=? AND completed=1 ORDER BY exercise_order, set_number", (session_id,)).fetchall()
-        historical_sets = connection.execute("SELECT workout_sets.* FROM workout_sets JOIN workout_sessions ON workout_sessions.id=workout_sets.session_id WHERE workout_sessions.member_id=? AND workout_sessions.status='completed' AND workout_sessions.id != ?", (member["id"], session_id)).fetchall()
+        current_sets = connection.execute("SELECT * FROM workout_sets WHERE session_id=? AND completed=1 AND is_warmup=0 ORDER BY exercise_order, set_number", (session_id,)).fetchall()
+        historical_sets = connection.execute("SELECT workout_sets.* FROM workout_sets JOIN workout_sessions ON workout_sessions.id=workout_sets.session_id WHERE workout_sessions.member_id=? AND workout_sessions.status='completed' AND workout_sessions.id != ? AND workout_sets.is_warmup=0", (member["id"], session_id)).fetchall()
         recommendations, pr_events = [], []
         for name in sorted({item["exercise_name"] for item in current_sets}):
             current = [dict(item) for item in current_sets if item["exercise_name"] == name]
@@ -545,8 +576,12 @@ def finish_workout(session_id):
             persist_pr_events(connection, member["id"], session_id, name, exercise_events, current)
             pr_events.extend(exercise_events)
         connection.execute("UPDATE workout_sessions SET status='completed', completed_at=CURRENT_TIMESTAMP WHERE id=?", (session_id,))
-        summary = connection.execute("SELECT COUNT(*) sets_completed, COALESCE(SUM(actual_weight * actual_reps),0) volume FROM workout_sets WHERE session_id=? AND completed=1", (session_id,)).fetchone()
-    return render_template("workout_complete.html", workout_session=session_row, summary=summary, recommendations=recommendations, pr_events=pr_events)
+        summary = connection.execute("SELECT COUNT(*) sets_completed, COUNT(DISTINCT exercise_order) exercises_completed, COALESCE(SUM(actual_weight * actual_reps),0) volume FROM workout_sets WHERE session_id=? AND completed=1 AND is_warmup=0", (session_id,)).fetchone()
+    try:
+        duration_seconds = max(0, int((datetime.now() - datetime.fromisoformat(session_row["started_at"])).total_seconds()))
+    except (TypeError, ValueError):
+        duration_seconds = 0
+    return render_template("workout_complete.html", workout_session=session_row, summary=summary, recommendations=recommendations, pr_events=pr_events, duration_seconds=duration_seconds)
 
 
 @app.route("/history")
