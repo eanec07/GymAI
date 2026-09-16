@@ -3,6 +3,8 @@ import re
 import sqlite3
 import uuid
 import json
+import logging
+import secrets
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -60,7 +62,7 @@ TRAINING_PREFERENCE_FIELDS = {
 }
 
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE = BASE_DIR / "sylrix.db"
+DATABASE = Path(os.environ.get("SYLRIX_DATABASE_PATH", str(BASE_DIR / "sylrix.db")))
 LEGACY_DATABASES = (BASE_DIR / "sylrix_ai.db", BASE_DIR / "renata_ai.db", BASE_DIR / "gymai.db")
 UPLOAD_DIR = BASE_DIR / "uploads"
 ALLOWED_IMAGE_TYPES = {"png", "jpg", "jpeg", "webp"}
@@ -72,10 +74,32 @@ app.config["UPLOAD_FOLDER"] = str(UPLOAD_DIR)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 is_production = os.environ.get("SYLRIX_ENV") == "production"
+csrf_enabled = os.environ.get("SYLRIX_CSRF_ENABLED", "1" if is_production else "0") == "1"
+app.config["BETA_MODE"] = os.environ.get("SYLRIX_BETA_MODE") == "1"
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SYLRIX_COOKIE_SECURE", "1" if is_production else "0") == "1"
 
 if is_production and app.config["SECRET_KEY"] == "change-this-before-deploying":
     raise RuntimeError("Set SYLRIX_SECRET_KEY before running SYLRIX in production.")
+if is_production:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+app.logger.info("SYLRIX starting in %s mode", "production" if is_production else "development")
+
+
+@app.context_processor
+def csrf_context():
+    token = session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf_token"] = token
+    return {"csrf_token": token}
+
+
+@app.before_request
+def enforce_csrf():
+    if csrf_enabled and request.method == "POST":
+        token = request.form.get("csrf_token", "")
+        if not token or not secrets.compare_digest(token, session.get("csrf_token", "")):
+            abort(403)
 
 
 @contextmanager
@@ -286,6 +310,27 @@ def add_security_headers(response):
     return response
 
 
+@app.route("/health")
+def health():
+    try:
+        with db_connection() as connection:
+            connection.execute("SELECT 1").fetchone()
+    except sqlite3.Error:
+        app.logger.exception("Health check database failure")
+        return {"status": "unavailable"}, 503
+    return {"status": "ok"}
+
+
+@app.route("/privacy")
+def privacy():
+    return render_template("legal.html", page="Privacy", content="SYLRIX stores the account, training, nutrition, progress, and photo information you choose to enter so it can provide member-specific features. Private beta data handling must be formally reviewed before any public or commercial launch.")
+
+
+@app.route("/terms")
+def terms():
+    return render_template("legal.html", page="Terms", content="SYLRIX provides general fitness organization and educational guidance, not medical advice. This private-beta placeholder requires formal legal review before public or commercial use.")
+
+
 @app.route("/")
 def home():
     return render_template("home.html")
@@ -367,7 +412,11 @@ def register():
         username = request.form.get("username", "").strip()
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
-        if len(username) < 3 or not username.replace("_", "").replace("-", "").isalnum():
+        invite_code = os.environ.get("SYLRIX_BETA_INVITE_CODE", "")
+        submitted_code = request.form.get("invite_code", "")
+        if app.config["BETA_MODE"] and (not invite_code or not submitted_code or not secrets.compare_digest(submitted_code, invite_code)):
+            flash("A valid private-beta invite code is required to register.")
+        elif len(username) < 3 or not username.replace("_", "").replace("-", "").isalnum():
             flash("Choose a username with 3+ letters, numbers, hyphens, or underscores.")
         elif "@" not in email or len(email) > 254:
             flash("Enter a valid email address.")
@@ -815,10 +864,16 @@ def progress():
     if request.method == "POST":
         photo = request.files.get("photo")
         if not photo or not photo.filename or not image_allowed(photo.filename) or not image_is_valid(photo):
+            app.logger.warning("Rejected progress photo upload")
             flash("Upload a valid PNG, JPG, JPEG, or WEBP image.")
             return redirect(url_for("progress"))
         filename = f"{uuid.uuid4().hex}_{secure_filename(photo.filename)}"
-        photo.save(UPLOAD_DIR / filename)
+        try:
+            photo.save(UPLOAD_DIR / filename)
+        except OSError:
+            app.logger.exception("Progress photo storage failure")
+            flash("Your photo could not be saved. Please try again.")
+            return redirect(url_for("progress"))
         with db_connection() as connection:
             connection.execute("INSERT INTO progress_photos (member_id, filename, caption, uploaded_on) VALUES (?, ?, ?, ?)", (member["id"], filename, request.form.get("caption", "").strip(), date.today().isoformat()))
         flash("Progress photo saved.")
@@ -935,7 +990,19 @@ def too_large(_error):
     return redirect(url_for("progress"))
 
 
+@app.errorhandler(403)
+@app.errorhandler(404)
+@app.errorhandler(429)
+@app.errorhandler(500)
+def branded_error(error):
+    if getattr(error, "code", 500) == 500:
+        app.logger.exception("Unhandled application error")
+    return render_template("error.html", code=getattr(error, "code", 500)), getattr(error, "code", 500)
+
+
 setup_database()
 
 if __name__ == "__main__":
+    if is_production:
+        raise RuntimeError("Use Gunicorn in production: gunicorn wsgi:app")
     app.run(debug=os.environ.get("SYLRIX_DEBUG", "0") == "1", port=int(os.environ.get("PORT", 5001)))

@@ -1,25 +1,33 @@
-# SYLRIX
+# SYLRIX.FIT
 
-SYLRIX is a starter web app for a gym's member workout notebook. It includes:
+SYLRIX.FIT is a member-focused training system with adaptive workouts, workout logging, nutrition tracking, progress history, an exercise library, and a member-aware Coach.
 
-- goal-, experience-, schedule-, and equipment-aware workout splits
-- a public `/daily` workout page that can be placed behind a gym QR code
-- lift logging, calorie/protein targets, and progress-photo uploads
-- a realistic physique-inspiration planner
-- a transparent source-status page for future nutrition and research integrations
-
-## Run locally
+## Local development
 
 ```bash
 python3 -m pip install -r requirements.txt
 python3 app.py
 ```
 
-Open `http://127.0.0.1:5001` in a browser. The public QR destination is `http://127.0.0.1:5001/daily` locally; use your deployed domain plus `/daily` when you create the gym QR code. Set `PORT` to use a different port when deploying.
+Open `http://127.0.0.1:5001`. To use another local port, run `PORT=5002 python3 app.py`. Stop the server with `Ctrl-C` and start it again after Python changes.
 
-## Before deployment
+Run the checks with:
 
-Set a strong, private `SYLRIX_SECRET_KEY`. SQLite and local uploaded images are appropriate for local development only. A real gym deployment should use a managed database, private object storage for photos, real user authentication, backups, and a privacy policy.
+```bash
+python3 -m unittest discover -s tests -q
+```
+
+## Private-beta deployment
+
+Production needs a proper WSGI server and a persistent volume. Copy `.env.example` to your deployment platform's environment configuration, set real secrets there, then use:
+
+```bash
+gunicorn --workers 2 --threads 4 --timeout 60 --bind 0.0.0.0:$PORT wsgi:app
+```
+
+`SYLRIX_ENV=production` requires a real `SYLRIX_SECRET_KEY`; `python app.py` intentionally refuses to run in production mode. Use `GET /health` for the platform health check.
+
+The full beta runbook—including SQLite limits, persistence, safe schema behavior, backups, invite-only beta mode, and the public-launch gap list—is in [docs/private_beta_deployment.md](docs/private_beta_deployment.md).
 
 ## Live-data policy
 

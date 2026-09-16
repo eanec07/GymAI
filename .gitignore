@@ -1,10 +1,15 @@
 __pycache__/
 *.py[cod]
 .env
+.env.*
+!.env.example
 gymai.db
 renata_ai.db
 sylrix_ai.db
 sylrix.db
+*.db-journal
+*.db-shm
+*.db-wal
 static/uploads/*
 !static/uploads/.gitkeep
 uploads/*

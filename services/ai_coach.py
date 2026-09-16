@@ -1,5 +1,6 @@
 """SYLRIX Coach providers plus narrowly scoped, member-safe data tools."""
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -19,6 +20,7 @@ from services.coach_tools import CoachToolRegistry, TOOL_DEFINITIONS as REGISTRY
 
 MODEL = os.environ.get("SYLRIX_AI_MODEL", "gpt-5.6-terra")
 COACH_MODE = os.environ.get("SYLRIX_COACH_MODE", "local").lower()
+logger = logging.getLogger(__name__)
 
 def _tool_definition(name, description, properties=None):
     return {"type": "function", "name": name, "description": description, "parameters": {"type": "object", "properties": properties or {}, "additionalProperties": False}, "strict": True}
@@ -474,5 +476,6 @@ class CoachService:
         except Exception as error:
             # Keep a non-user-facing diagnostic category; never return provider details.
             self.last_error = f"provider_unavailable:{type(error).__name__}"
+            logger.warning("Coach provider unavailable; using local fallback (%s)", type(error).__name__)
             # Keep Coach useful during provider outages or exhausted credits.
             return self.local_reply(member_id, message)

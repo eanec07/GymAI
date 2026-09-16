@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080909">
   <title>{% block title %}SYLRIX.FIT{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -38,7 +39,7 @@
     </nav>
   </header>
   {% block shell %}<main>{% with messages = get_flashed_messages() %}{% if messages %}<div class="flash-stack">{% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}{% block content %}{% endblock %}</main>{% endblock %}
-  <footer class="site-footer"><div><strong>SYLRIX.FIT</strong><span>Built around the work you actually log.</span></div><span>SYLRIX Coach · Your training intelligence</span></footer>
-  <script>document.querySelector('.nav-toggle')?.addEventListener('click',function(){const nav=document.querySelector('#site-navigation'),open=nav.classList.toggle('open');this.setAttribute('aria-expanded',open)});</script>
+  <footer class="site-footer"><div><strong>SYLRIX.FIT</strong><span>Built around the work you actually log.</span></div><span><a href="{{ url_for('privacy') }}">Privacy</a> · <a href="{{ url_for('terms') }}">Terms</a></span></footer>
+  <script>document.querySelector('.nav-toggle')?.addEventListener('click',function(){const nav=document.querySelector('#site-navigation'),open=nav.classList.toggle('open');this.setAttribute('aria-expanded',open)});document.querySelectorAll('form[method="post"]').forEach(form=>{if(!form.querySelector('[name="csrf_token"]')){const input=document.createElement('input');input.type='hidden';input.name='csrf_token';input.value='{{ csrf_token }}';form.append(input)}});</script>
 </body>
 </html>
