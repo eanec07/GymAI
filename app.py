@@ -22,6 +22,7 @@ from training.filtering import find_substitutes
 from training.models import TrainingGoal, UserProfile
 from training.progression import get_progression_recommendation
 from training.prs import detect_prs
+from training.adaptive import apply_progression_states, progression_state, progression_states, recommendation_for_session, save_progression_state
 from muscles import diagram_regions, display_muscle
 
 TRAINING_CATEGORIES = {
@@ -109,6 +110,7 @@ def setup_database():
             CREATE TABLE IF NOT EXISTS session_exercises (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, exercise_order INTEGER NOT NULL, original_exercise_name TEXT NOT NULL, exercise_name TEXT NOT NULL, replaced INTEGER NOT NULL DEFAULT 0, UNIQUE(session_id, exercise_order), FOREIGN KEY(session_id) REFERENCES workout_sessions(id));
             CREATE TABLE IF NOT EXISTS personal_records (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, workout_session_id INTEGER, exercise_name TEXT NOT NULL, pr_type TEXT NOT NULL, value REAL NOT NULL DEFAULT 0, weight REAL, reps INTEGER, estimated_1rm REAL, achieved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(member_id, workout_session_id, exercise_name, pr_type), FOREIGN KEY(member_id) REFERENCES members(id), FOREIGN KEY(workout_session_id) REFERENCES workout_sessions(id));
             CREATE TABLE IF NOT EXISTS body_weight_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, weight REAL NOT NULL, logged_on TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(member_id, logged_on), FOREIGN KEY(member_id) REFERENCES members(id));
+            CREATE TABLE IF NOT EXISTS exercise_progression_state (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, exercise_name TEXT NOT NULL, last_session_id INTEGER, recommended_weight REAL, recommended_reps TEXT, recommended_rpe REAL, progression_action TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', consecutive_misses INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(member_id, exercise_name), FOREIGN KEY(member_id) REFERENCES members(id), FOREIGN KEY(last_session_id) REFERENCES workout_sessions(id));
         """)
         member_columns = {row[1] for row in connection.execute("PRAGMA table_info(members)")}
         for column, definition in {
@@ -169,7 +171,9 @@ def save_training_preferences(member_id, style, form):
 
 
 def member_plan(member):
-    return generate_workout(f'{member["equipment"]} {member["equipment_notes"]}', member["experience"], member["days"], f'{member["goal"]} {member["custom_goal"]}', member["training_style"], member["split_preference"], member["limitations"], member["session_minutes"], member["favorite_exercises"], member["avoid_exercises"], training_preferences_for(member["id"]))
+    plan = generate_workout(f'{member["equipment"]} {member["equipment_notes"]}', member["experience"], member["days"], f'{member["goal"]} {member["custom_goal"]}', member["training_style"], member["split_preference"], member["limitations"], member["session_minutes"], member["favorite_exercises"], member["avoid_exercises"], training_preferences_for(member["id"]))
+    with db_connection() as connection:
+        return apply_progression_states(plan, progression_states(connection, member["id"]))
 
 
 def workout_set_targets(exercise):
@@ -179,8 +183,9 @@ def workout_set_targets(exercise):
     weight = re.search(r"Target:\s*([\d.]+)\s*lb", prescription, re.I)
     rpe = re.search(r"RPE\s*([\d.]+)", prescription, re.I)
     rep_text = reps.group(1).strip() if reps else ""
-    rep_number = re.search(r"\d+", rep_text)
-    return count, (rep_number.group(0) if rep_number else ""), (float(weight.group(1)) if weight else None), (float(rpe.group(1)) if rpe else None)
+    # A range such as 3–5 uses its top end as the deterministic progression target.
+    rep_numbers = re.findall(r"\d+", rep_text)
+    return count, (rep_numbers[-1] if rep_numbers else ""), (float(weight.group(1)) if weight else None), (float(rpe.group(1)) if rpe else None)
 
 
 def session_for_member(session_id, member_id):
@@ -421,7 +426,7 @@ def plan():
     plan_goal = f'{member["goal"]} {member["custom_goal"]}'
     plan_equipment = f'{member["equipment"]} {member["equipment_notes"]}'
     preferences = training_preferences_for(member["id"])
-    return render_template("plan.html", member=member, workout_plan=generate_workout(plan_equipment, member["experience"], member["days"], plan_goal, member["training_style"], member["split_preference"], member["limitations"], member["session_minutes"], member["favorite_exercises"], member["avoid_exercises"], preferences), training_preferences=preferences)
+    return render_template("plan.html", member=member, workout_plan=member_plan(member), training_preferences=preferences)
 
 
 @app.route("/app/workouts")
@@ -461,7 +466,7 @@ def active_workout(day_number):
         if index < len(overrides):
             exercise["original_name"] = overrides[index]["original_exercise_name"]
             exercise["name"] = overrides[index]["exercise_name"]
-    return render_template("active_workout.html", member=member, workout=workout, session=active, sets_by_exercise=by_exercise, previous_by_exercise=previous_by_exercise, overrides=overrides)
+    return render_template("active_workout.html", member=member, workout=workout, workout_session=active, sets_by_exercise=by_exercise, previous_by_exercise=previous_by_exercise, overrides=overrides)
 
 
 @app.route("/workout/session/<int:session_id>/exercise/<int:exercise_order>/replace", methods=["GET", "POST"])
@@ -484,7 +489,7 @@ def replace_session_exercise(session_id, exercise_order):
             connection.execute("UPDATE session_exercises SET exercise_name=?, replaced=1 WHERE session_id=? AND exercise_order=?", (selected, session_id, exercise_order))
             connection.execute("UPDATE workout_sets SET exercise_name=? WHERE session_id=? AND exercise_order=?", (selected, session_id, exercise_order))
         return redirect(url_for("active_workout", day_number=session_row["workout_day"]))
-    return render_template("replace_exercise.html", session=session_row, current=current, choices=choices)
+    return render_template("replace_exercise.html", workout_session=session_row, current=current, choices=choices)
 
 
 @app.route("/workout/session/<int:session_id>/set/<int:set_id>", methods=["POST"])
@@ -525,13 +530,15 @@ def finish_workout(session_id):
             current = [dict(item) for item in current_sets if item["exercise_name"] == name]
             historical = [dict(item) for item in historical_sets if item["exercise_name"] == name]
             target = next((item["target_reps"] for item in current_sets if item["exercise_name"] == name), "5")
-            recommendations.append((name, get_progression_recommendation(current, f"3 sets × {target} reps", name, session_row["training_style"])))
+            recommendation = recommendation_for_session(connection, member["id"], session_id, name, current, f"3 sets × {target} reps", session_row["training_style"])
+            save_progression_state(connection, member["id"], session_id, name, recommendation, current)
+            recommendations.append((name, recommendation))
             exercise_events = detect_prs(name, current, historical)
             persist_pr_events(connection, member["id"], session_id, name, exercise_events, current)
             pr_events.extend(exercise_events)
         connection.execute("UPDATE workout_sessions SET status='completed', completed_at=CURRENT_TIMESTAMP WHERE id=?", (session_id,))
         summary = connection.execute("SELECT COUNT(*) sets_completed, COALESCE(SUM(actual_weight * actual_reps),0) volume FROM workout_sets WHERE session_id=? AND completed=1", (session_id,)).fetchone()
-    return render_template("workout_complete.html", session=session_row, summary=summary, recommendations=recommendations, pr_events=pr_events)
+    return render_template("workout_complete.html", workout_session=session_row, summary=summary, recommendations=recommendations, pr_events=pr_events)
 
 
 @app.route("/history")
@@ -550,7 +557,31 @@ def workout_history_detail(session_id):
     if not session_row or session_row["status"] != "completed": abort(404)
     with db_connection() as connection:
         entries = connection.execute("SELECT * FROM workout_sets WHERE session_id=? AND completed=1 ORDER BY exercise_order, set_number", (session_id,)).fetchall()
-    return render_template("history_detail.html", session=session_row, entries=entries)
+    return render_template("history_detail.html", workout_session=session_row, entries=entries)
+
+
+@app.route("/progress/exercise/<path:exercise_name>")
+def exercise_progress(exercise_name):
+    """A member-owned view of the data behind one exercise recommendation."""
+    member = require_member()
+    if not member:
+        return redirect(url_for("login"))
+    with db_connection() as connection:
+        state = progression_state(connection, member["id"], exercise_name)
+        sessions = connection.execute(
+            """SELECT workout_sessions.completed_at, workout_sets.actual_weight, workout_sets.actual_reps,
+                      workout_sets.actual_rpe, workout_sets.set_number
+               FROM workout_sets JOIN workout_sessions ON workout_sessions.id=workout_sets.session_id
+               WHERE workout_sessions.member_id=? AND workout_sessions.status='completed'
+                 AND lower(workout_sets.exercise_name)=lower(?) AND workout_sets.completed=1
+               ORDER BY workout_sessions.completed_at DESC, workout_sets.id DESC LIMIT 30""",
+            (member["id"], exercise_name),
+        ).fetchall()
+        records = connection.execute(
+            "SELECT pr_type, value, weight, reps, estimated_1rm, achieved_at FROM personal_records WHERE member_id=? AND lower(exercise_name)=lower(?) ORDER BY achieved_at DESC, id DESC LIMIT 10",
+            (member["id"], exercise_name),
+        ).fetchall()
+    return render_template("exercise_progress.html", exercise_name=exercise_name, state=state, sessions=sessions, records=records)
 
 
 @app.route("/app/profile", methods=["GET", "POST"])

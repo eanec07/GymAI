@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block title %}{{ exercise_name }} progress · SYLRIX.FIT{% endblock %}
+{% block content %}
+<section class="app-screen history-detail"><p class="eyebrow">Exercise progress</p><h1>{{ exercise_name }}</h1>
+{% if state %}<section class="info-panel"><p class="eyebrow">Current next target</p><h2>{{ state.progression_action|replace('_', ' ')|title }}</h2><p>{{ state.reason }}</p><p><strong>{% if state.recommended_weight is not none %}{{ state.recommended_weight }} lb{% else %}Bodyweight / current load{% endif %}{% if state.recommended_reps %} · {{ state.recommended_reps }} reps{% endif %}</strong></p></section>{% else %}<section class="info-panel"><p>No next-session recommendation yet. Complete this exercise in a workout to establish one.</p></section>{% endif %}
+<section class="history-sets"><p class="eyebrow">Recent performance</p>{% for entry in sessions %}<div class="history-set"><span>{{ entry.completed_at[:10] }} · set {{ entry.set_number }}</span><strong>{{ entry.actual_weight or 'Bodyweight' }} × {{ entry.actual_reps }}</strong>{% if entry.actual_rpe %}<small>RPE {{ entry.actual_rpe }}</small>{% endif %}</div>{% else %}<p class="muted">No completed sets are recorded for this exercise.</p>{% endfor %}</section>
+{% if records %}<section class="info-panel"><p class="eyebrow">Personal records</p>{% for record in records %}<p><strong>{{ record.pr_type|replace('_', ' ')|title }}</strong> · {{ record.value }}{% if record.weight %} ({{ record.weight }} lb × {{ record.reps }}){% endif %} · {{ record.achieved_at[:10] }}</p>{% endfor %}</section>{% endif %}
+</section>
+{% endblock %}

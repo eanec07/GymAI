@@ -26,6 +26,7 @@ class CoachServiceTests(unittest.TestCase):
                 CREATE TABLE personal_records (id INTEGER PRIMARY KEY, member_id INTEGER, workout_session_id INTEGER, exercise_name TEXT, pr_type TEXT, value REAL, weight REAL, reps INTEGER, estimated_1rm REAL, achieved_at TEXT);
                 CREATE TABLE body_weight_logs (id INTEGER PRIMARY KEY, member_id INTEGER, weight REAL, logged_on TEXT);
                 CREATE TABLE coach_messages (id INTEGER PRIMARY KEY, member_id INTEGER, role TEXT, message TEXT);
+                CREATE TABLE exercise_progression_state (id INTEGER PRIMARY KEY, member_id INTEGER, exercise_name TEXT, last_session_id INTEGER, recommended_weight REAL, recommended_reps TEXT, recommended_rpe REAL, progression_action TEXT, reason TEXT, consecutive_misses INTEGER, updated_at TEXT, UNIQUE(member_id, exercise_name));
             """)
             connection.execute("INSERT INTO members VALUES (1, 25, 'male', 180, 70, 'strength', 'powerlifting', 'intermediate', 4, 60, 'full gym', '', '', 'bench press', '', '', 'auto', 170)")
             connection.execute("INSERT INTO members VALUES (2, 30, 'female', 140, 65, 'muscle gain', 'bodybuilding', 'beginner', 3, 45, 'dumbbell', '', '', '', '', '', 'auto', 130)")
@@ -46,6 +47,7 @@ class CoachServiceTests(unittest.TestCase):
             ])
             connection.executemany("INSERT INTO step_logs VALUES (?, ?, ?, ?)", [(1, 9000, 8000, today), (2, 3000, 8000, today)])
             connection.execute("INSERT INTO personal_records VALUES (1, 1, 2, 'Bench Press - Powerlifting', 'weight', 235, 235, 5, 274.2, ?)", (today,))
+            connection.execute("INSERT INTO exercise_progression_state VALUES (1, 1, 'Bench Press - Powerlifting', 2, 237.5, '5', 8, 'increase', 'Completed all target reps.', 0, ?)", (today,))
             connection.executemany("INSERT INTO body_weight_logs VALUES (?, ?, ?, ?)", [(1, 1, 184, '2026-09-01'), (2, 1, 180, '2026-09-15'), (3, 2, 140, '2026-09-15')])
             connection.commit()
         finally:
@@ -121,6 +123,15 @@ class CoachServiceTests(unittest.TestCase):
         self.assertTrue(results["exercises"])
         self.assertTrue(all(item["equipment"] == "dumbbell" for item in results["exercises"]))
         self.assertEqual(self.service._tool(1, "drop_database", {})["message"], "That tool is unavailable.")
+
+    def test_saved_progression_tool_is_bound_to_the_authenticated_member(self):
+        bound = CoachService(self.file.name, 1)
+        state = bound.tools.execute("get_exercise_progression", {"exercise_name": "Bench Press - Powerlifting", "member_id": 2})
+        missing = bound.tools.execute("get_exercise_progression", {"exercise_name": "Dumbbell Bench Press"})
+        self.assertEqual(state["recommended_weight"], 237.5)
+        self.assertIn("No saved progression", missing["message"])
+        with patch.dict(os.environ, {}, clear=True), patch.object(coach_module, "COACH_MODE", "local"):
+            self.assertIn("237.5 lb", bound.reply("What weight should I bench next time?"))
 
     def test_provider_tool_loop_has_a_hard_limit_and_falls_back_safely(self):
         class Responses:

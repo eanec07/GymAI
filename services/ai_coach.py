@@ -10,9 +10,10 @@ from training.exercise_repository import load_exercises
 from training.filtering import find_substitutes
 from training.models import TrainingGoal, UserProfile
 from training.progression import get_progression_recommendation
+from training.adaptive import apply_progression_states, progression_states
 from workouts import generate_workout
 from services.coach_prompt import SYSTEM_INSTRUCTIONS
-from services.coach_tools import CoachToolRegistry, TOOL_DEFINITIONS as REGISTRY_TOOL_DEFINITIONS
+from services.coach_tools import CoachToolRegistry, TOOL_DEFINITIONS as REGISTRY_TOOL_DEFINITIONS, ALLOWED_TOOL_NAMES as REGISTRY_ALLOWED_TOOL_NAMES
 
 MODEL = os.environ.get("SYLRIX_AI_MODEL", "gpt-5.6-terra")
 COACH_MODE = os.environ.get("SYLRIX_COACH_MODE", "local").lower()
@@ -48,6 +49,7 @@ MAX_TOOL_ITERATIONS = 4
 # The registry owns the provider contract; this compatibility alias preserves
 # imports used by existing integrations while moving schemas out of this service.
 TOOL_DEFINITIONS = REGISTRY_TOOL_DEFINITIONS
+ALLOWED_TOOL_NAMES = REGISTRY_ALLOWED_TOOL_NAMES
 
 
 class CoachService:
@@ -92,7 +94,7 @@ class CoachService:
         lowered = (message or "").lower().replace("-", " ")
         matches = [item for item in load_exercises() if item.name.lower() in lowered]
         aliases = {
-            "bench": "Bench Press", "pull up": "Pull-Up", "pullups": "Pull-Up",
+            "bench": "Bench Press - Powerlifting", "pull up": "Pull-Up", "pullups": "Pull-Up",
             "deadlift": "Deadlift", "bulgarian split squat": "Bulgarian Split Squat",
         }
         if not matches:
@@ -126,6 +128,7 @@ class CoachService:
             member["limitations"], member["session_minutes"], member["favorite_exercises"],
             member["avoid_exercises"], preferences,
         )
+        plan = apply_progression_states(plan, progression_states(db, member["id"]))
         return [
             {"day": day["day"], "name": day["name"], "focus": day.get("focus", ""),
              "exercises": [self._plan_exercise(exercise) for exercise in day["exercises"]]}
@@ -238,6 +241,11 @@ class CoachService:
             return "Your recent completed workouts: " + "; ".join(f"{item['workout_name']} ({item['completed_at']})" for item in workouts) + "."
 
         if any(word in lowered for word in ("increase", "progress", "weight should", "what weight")) and exercise:
+            saved = self._tool(member_id, "get_exercise_progression", {"exercise_name": exercise.name})
+            if "recommended_weight" in saved:
+                target = f"{saved['recommended_weight']:g} lb" if saved["recommended_weight"] is not None else "your current bodyweight/load"
+                reps = f" for {saved['recommended_reps']} reps" if saved.get("recommended_reps") else ""
+                return f"Your saved next target for {saved['exercise_name']} is {target}{reps}. {saved['reason']}"
             result = self._tool(member_id, "get_progression", {"exercise_name": exercise.name})
             return result.get("recommendation", result.get("message", "Log a completed workout first so SYLRIX can calculate a recommendation."))
 
@@ -269,7 +277,7 @@ class CoachService:
         arguments = arguments or {}
         # The model may never choose a member ID; this server-only argument is the
         # authenticated member identity supplied by the Flask route.
-        aliases = {"get_exercise_performance": "get_exercise_history", "get_personal_records": "get_pr_history", "get_nutrition_summary": "get_nutrition_targets", "get_recent_nutrition": "get_nutrition_history", "get_exercise_information": "find_exercise"}
+        aliases = {"get_exercise_performance": "get_exercise_history", "get_personal_records": "get_pr_history", "get_nutrition_summary": "get_nutrition_targets", "get_recent_nutrition": "get_nutrition_history", "get_exercise_information": "find_exercise", "get_exercise_progression": "get_saved_progression", "get_recent_prs": "get_pr_history", "get_training_progress_summary": "get_progress_summary"}
         if name not in ALLOWED_TOOL_NAMES and name not in {"get_training_plan", "get_exercise_history", "get_pr_history", "get_nutrition_targets", "get_nutrition_history", "find_exercise"}:
             return {"message": "That tool is unavailable."}
         name = aliases.get(name, name)
@@ -320,8 +328,19 @@ class CoachService:
             if name == "get_recent_workouts":
                 rows = db.execute("SELECT workout_name, training_style, completed_at FROM workout_sessions WHERE member_id=? AND status='completed' ORDER BY completed_at DESC LIMIT ?", (member_id, limit)).fetchall()
                 return [dict(row) for row in rows]
-            if name in {"get_exercise_history", "get_progression"}:
+            if name in {"get_exercise_history", "get_progression", "get_saved_progression"}:
                 exercise = arguments.get("exercise_name", "")
+                if name == "get_saved_progression":
+                    if not exercise.strip():
+                        return {"message": "Choose an exercise name to look up its saved next-session target."}
+                    state = db.execute("SELECT exercise_name, recommended_weight, recommended_reps, recommended_rpe, progression_action, reason, consecutive_misses, updated_at FROM exercise_progression_state WHERE member_id=? AND lower(exercise_name)=lower(?)", (member_id, exercise)).fetchone()
+                    if not state:
+                        # Resolve common wording such as “bench” only within this
+                        # member's saved states; it never broadens the member scope.
+                        keyword = next((word for word in re.findall(r"[a-z]{4,}", exercise.lower()) if word not in {"barbell", "powerlifting", "medium"}), "")
+                        if keyword:
+                            state = db.execute("SELECT exercise_name, recommended_weight, recommended_reps, recommended_rpe, progression_action, reason, consecutive_misses, updated_at FROM exercise_progression_state WHERE member_id=? AND lower(exercise_name) LIKE ? ORDER BY updated_at DESC LIMIT 1", (member_id, f"%{keyword}%")).fetchone()
+                    return dict(state) if state else {"message": "No saved progression target exists for that exercise yet."}
                 rows = db.execute("SELECT workout_sets.actual_weight, workout_sets.actual_reps, workout_sets.target_reps, workout_sets.completed, workout_sessions.completed_at, workout_sessions.training_style FROM workout_sets JOIN workout_sessions ON workout_sessions.id=workout_sets.session_id WHERE workout_sessions.member_id=? AND workout_sessions.status='completed' AND lower(workout_sets.exercise_name)=lower(?) ORDER BY workout_sessions.completed_at DESC, workout_sets.id DESC LIMIT ?", (member_id, exercise, limit)).fetchall()
                 values = [dict(row) for row in rows]
                 if name == "get_exercise_history":
