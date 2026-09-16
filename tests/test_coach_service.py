@@ -2,6 +2,10 @@ import os
 import sqlite3
 import tempfile
 import unittest
+import sys
+import types
+from unittest.mock import patch
+import services.ai_coach as coach_module
 from services.ai_coach import CoachService
 
 
@@ -13,16 +17,18 @@ class CoachServiceTests(unittest.TestCase):
         try:
             today = connection.execute("SELECT date('now')").fetchone()[0]
             connection.executescript("""
-                CREATE TABLE members (id INTEGER PRIMARY KEY, age INTEGER, sex TEXT, weight REAL, height REAL, goal TEXT, training_style TEXT, experience TEXT, days INTEGER, session_minutes INTEGER, equipment TEXT, equipment_notes TEXT, limitations TEXT, favorite_exercises TEXT, avoid_exercises TEXT, custom_goal TEXT DEFAULT '', split_preference TEXT DEFAULT 'auto');
+                CREATE TABLE members (id INTEGER PRIMARY KEY, age INTEGER, sex TEXT, weight REAL, height REAL, goal TEXT, training_style TEXT, experience TEXT, days INTEGER, session_minutes INTEGER, equipment TEXT, equipment_notes TEXT, limitations TEXT, favorite_exercises TEXT, avoid_exercises TEXT, custom_goal TEXT DEFAULT '', split_preference TEXT DEFAULT 'auto', goal_weight REAL);
                 CREATE TABLE training_preferences (member_id INTEGER, preference_key TEXT, preference_value TEXT);
                 CREATE TABLE workout_sessions (id INTEGER PRIMARY KEY, member_id INTEGER, workout_name TEXT, workout_day INTEGER, training_style TEXT, status TEXT, started_at TEXT, completed_at TEXT);
                 CREATE TABLE workout_sets (id INTEGER PRIMARY KEY, session_id INTEGER, exercise_name TEXT, exercise_order INTEGER, set_number INTEGER, actual_weight REAL, actual_reps INTEGER, target_reps TEXT, target_weight REAL, target_rpe REAL, completed INTEGER);
                 CREATE TABLE nutrition_logs (member_id INTEGER, calories REAL, protein REAL, carbs REAL, fat REAL, fiber REAL, logged_on TEXT);
                 CREATE TABLE step_logs (member_id INTEGER, steps INTEGER, goal INTEGER, logged_on TEXT);
                 CREATE TABLE personal_records (id INTEGER PRIMARY KEY, member_id INTEGER, workout_session_id INTEGER, exercise_name TEXT, pr_type TEXT, value REAL, weight REAL, reps INTEGER, estimated_1rm REAL, achieved_at TEXT);
+                CREATE TABLE body_weight_logs (id INTEGER PRIMARY KEY, member_id INTEGER, weight REAL, logged_on TEXT);
+                CREATE TABLE coach_messages (id INTEGER PRIMARY KEY, member_id INTEGER, role TEXT, message TEXT);
             """)
-            connection.execute("INSERT INTO members VALUES (1, 25, 'male', 180, 70, 'strength', 'powerlifting', 'intermediate', 4, 60, 'full gym', '', '', 'bench press', '', '', 'auto')")
-            connection.execute("INSERT INTO members VALUES (2, 30, 'female', 140, 65, 'muscle gain', 'bodybuilding', 'beginner', 3, 45, 'dumbbell', '', '', '', '', '', 'auto')")
+            connection.execute("INSERT INTO members VALUES (1, 25, 'male', 180, 70, 'strength', 'powerlifting', 'intermediate', 4, 60, 'full gym', '', '', 'bench press', '', '', 'auto', 170)")
+            connection.execute("INSERT INTO members VALUES (2, 30, 'female', 140, 65, 'muscle gain', 'bodybuilding', 'beginner', 3, 45, 'dumbbell', '', '', '', '', '', 'auto', 130)")
             connection.execute("INSERT INTO training_preferences VALUES (1, 'bench_max', '315')")
             connection.execute("INSERT INTO workout_sessions VALUES (1, 1, 'Powerlifting — Bench', 2, 'powerlifting', 'active', ?, NULL)", (today,))
             connection.execute("INSERT INTO workout_sessions VALUES (2, 1, 'Powerlifting — Bench', 2, 'powerlifting', 'completed', ?, ?)", (today, today))
@@ -40,6 +46,7 @@ class CoachServiceTests(unittest.TestCase):
             ])
             connection.executemany("INSERT INTO step_logs VALUES (?, ?, ?, ?)", [(1, 9000, 8000, today), (2, 3000, 8000, today)])
             connection.execute("INSERT INTO personal_records VALUES (1, 1, 2, 'Bench Press - Powerlifting', 'weight', 235, 235, 5, 274.2, ?)", (today,))
+            connection.executemany("INSERT INTO body_weight_logs VALUES (?, ?, ?, ?)", [(1, 1, 184, '2026-09-01'), (2, 1, 180, '2026-09-15'), (3, 2, 140, '2026-09-15')])
             connection.commit()
         finally:
             connection.close()
@@ -101,6 +108,34 @@ class CoachServiceTests(unittest.TestCase):
         finally:
             if previous_key:
                 os.environ["OPENAI_API_KEY"] = previous_key
+
+    def test_weight_and_workout_tools_ignore_model_member_id(self):
+        weight = self.service._tool(1, "get_weight_progress", {"member_id": 2})
+        workouts = self.service._tool(1, "get_workout_history", {"member_id": 2})
+        self.assertEqual(weight["latest_weight"], 180)
+        self.assertEqual(weight["change"], -4)
+        self.assertEqual(workouts["sessions"][0]["workout_name"], "Powerlifting — Bench")
+
+    def test_exercise_search_and_invalid_tool_are_safe(self):
+        results = self.service._tool(1, "search_exercises", {"equipment": "dumbbell", "limit": 3})
+        self.assertTrue(results["exercises"])
+        self.assertTrue(all(item["equipment"] == "dumbbell" for item in results["exercises"]))
+        self.assertEqual(self.service._tool(1, "drop_database", {})["message"], "That tool is unavailable.")
+
+    def test_provider_tool_loop_has_a_hard_limit_and_falls_back_safely(self):
+        class Responses:
+            def __init__(self): self.calls = 0
+            def create(self, **_kwargs):
+                self.calls += 1
+                call = types.SimpleNamespace(type="function_call", call_id=f"call-{self.calls}", name="get_member_profile", arguments="{}")
+                return types.SimpleNamespace(id=f"response-{self.calls}", output=[call], output_text="")
+        responses = Responses()
+        fake_openai = types.SimpleNamespace(OpenAI=lambda **_kwargs: types.SimpleNamespace(responses=responses))
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False), patch.object(coach_module, "COACH_MODE", "openai"), patch.object(self.service, "_tool", return_value={"ok": True}), patch.dict(sys.modules, {"openai": fake_openai}):
+            answer = self.service.reply(1, "Show my profile")
+        self.assertTrue(answer)
+        self.assertLessEqual(responses.calls, coach_module.MAX_TOOL_ITERATIONS + 1)
+        self.assertEqual(self.service.last_error, "tool_iteration_limit")
 
 
 if __name__ == "__main__":
