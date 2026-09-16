@@ -13,6 +13,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from nutrition import calculate_nutrition
+from services.nutrition_tracking import daily_nutrition, nutrition_values, recent_foods
 from physique import build_physique_path
 from data_sources import source_status
 from workouts import generate_daily_workout_for_level, generate_workout, weekly_daily_schedule
@@ -126,6 +127,9 @@ def setup_database():
         }.items():
             if column not in member_columns:
                 connection.execute(f"ALTER TABLE members ADD COLUMN {column} {definition}")
+        nutrition_columns = {row[1] for row in connection.execute("PRAGMA table_info(nutrition_logs)")}
+        if "serving" not in nutrition_columns:
+            connection.execute("ALTER TABLE nutrition_logs ADD COLUMN serving TEXT NOT NULL DEFAULT ''")
 
 
 def current_member():
@@ -323,15 +327,17 @@ def app_dashboard():
     member = current_member()
     if not member:
         return redirect(url_for("login"))
-    nutrition = calculate_nutrition(member["age"], member["sex"], member["weight"], member["height"], member["goal"], member["days"])
     with db_connection() as connection:
+        nutrition = daily_nutrition(connection, member)
         recent_logs = connection.execute("SELECT * FROM workout_logs WHERE member_id = ? ORDER BY logged_on DESC, id DESC LIMIT 5", (member["id"],)).fetchall()
         today_steps = connection.execute("SELECT steps, goal FROM step_logs WHERE member_id = ? AND logged_on = ?", (member["id"], date.today().isoformat())).fetchone()
         active_session = connection.execute("SELECT * FROM workout_sessions WHERE member_id = ? AND status = 'active' ORDER BY started_at DESC, id DESC LIMIT 1", (member["id"],)).fetchone()
         recent_sessions = connection.execute("SELECT workout_name, workout_day, completed_at FROM workout_sessions WHERE member_id = ? AND status = 'completed' ORDER BY completed_at DESC, id DESC LIMIT 3", (member["id"],)).fetchall()
         latest_pr = connection.execute("SELECT exercise_name, pr_type, achieved_at FROM personal_records WHERE member_id = ? ORDER BY achieved_at DESC, id DESC LIMIT 1", (member["id"],)).fetchone()
         completed_this_week = connection.execute("SELECT COUNT(*) FROM workout_sessions WHERE member_id = ? AND status = 'completed' AND completed_at >= datetime('now', '-7 days')", (member["id"],)).fetchone()[0]
-    return render_template("dashboard.html", member=member, nutrition=nutrition, recent_logs=recent_logs, today_steps=today_steps, active_session=active_session, recent_sessions=recent_sessions, latest_pr=latest_pr, completed_this_week=completed_this_week)
+        latest_weight = connection.execute("SELECT weight, logged_on FROM body_weight_logs WHERE member_id=? ORDER BY logged_on DESC, id DESC LIMIT 1", (member["id"],)).fetchone()
+        progression = connection.execute("SELECT exercise_name, recommended_weight, recommended_reps, progression_action FROM exercise_progression_state WHERE member_id=? ORDER BY updated_at DESC LIMIT 1", (member["id"],)).fetchone()
+    return render_template("dashboard.html", member=member, nutrition=nutrition, recent_logs=recent_logs, today_steps=today_steps, active_session=active_session, recent_sessions=recent_sessions, latest_pr=latest_pr, completed_this_week=completed_this_week, latest_weight=latest_weight, progression=progression)
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -666,13 +672,59 @@ def log_workout():
     return render_template("log.html", member=member, logs=logs)
 
 
-@app.route("/nutrition")
+@app.route("/nutrition", methods=["GET", "POST"])
 def nutrition():
     member = require_member()
     if not member:
         return redirect(url_for("onboarding"))
-    targets = calculate_nutrition(member["age"], member["sex"], member["weight"], member["height"], member["goal"], member["days"])
-    return render_template("nutrition.html", member=member, targets=targets)
+    selected_date = request.values.get("date", date.today().isoformat())
+    try:
+        selected_date = datetime.strptime(selected_date, "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        selected_date = date.today().isoformat()
+    if request.method == "POST":
+        try:
+            food_name, serving, values, logged_on = nutrition_values(request.form)
+        except (TypeError, ValueError):
+            flash("Enter a food and valid non-negative nutrition values.")
+        else:
+            with db_connection() as connection:
+                connection.execute("INSERT INTO nutrition_logs (member_id, food_name, serving, calories, protein, carbs, fat, fiber, logged_on) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (member["id"], food_name, serving, values["calories"], values["protein"], values["carbs"], values["fat"], values["fiber"], logged_on))
+            flash("Food entry saved.")
+        return redirect(url_for("nutrition", date=selected_date))
+    with db_connection() as connection:
+        summary = daily_nutrition(connection, member, selected_date)
+        entries = connection.execute("SELECT * FROM nutrition_logs WHERE member_id=? AND logged_on=? ORDER BY id DESC", (member["id"], selected_date)).fetchall()
+        foods = recent_foods(connection, member["id"])
+        days = connection.execute("SELECT logged_on, COUNT(*) entry_count FROM nutrition_logs WHERE member_id=? GROUP BY logged_on ORDER BY logged_on DESC LIMIT 7", (member["id"],)).fetchall()
+    return render_template("nutrition.html", member=member, summary=summary, entries=entries, recent_foods=foods, recent_days=days, selected_date=selected_date)
+
+
+@app.route("/nutrition/<int:entry_id>/edit", methods=["POST"])
+def edit_nutrition(entry_id):
+    member = require_member()
+    if not member: return redirect(url_for("login"))
+    try:
+        food_name, serving, values, logged_on = nutrition_values(request.form)
+    except (TypeError, ValueError):
+        flash("Enter a food and valid non-negative nutrition values.")
+    else:
+        with db_connection() as connection:
+            changed = connection.execute("UPDATE nutrition_logs SET food_name=?, serving=?, calories=?, protein=?, carbs=?, fat=?, fiber=?, logged_on=? WHERE id=? AND member_id=?", (food_name, serving, values["calories"], values["protein"], values["carbs"], values["fat"], values["fiber"], logged_on, entry_id, member["id"])).rowcount
+        if not changed: abort(404)
+        flash("Food entry updated.")
+    return redirect(url_for("nutrition", date=request.form.get("logged_on", date.today().isoformat())))
+
+
+@app.route("/nutrition/<int:entry_id>/delete", methods=["POST"])
+def delete_nutrition(entry_id):
+    member = require_member()
+    if not member: return redirect(url_for("login"))
+    with db_connection() as connection:
+        changed = connection.execute("DELETE FROM nutrition_logs WHERE id=? AND member_id=?", (entry_id, member["id"])).rowcount
+    if not changed: abort(404)
+    flash("Food entry deleted.")
+    return redirect(url_for("nutrition", date=request.form.get("logged_on", date.today().isoformat())))
 
 
 @app.route("/steps", methods=["GET", "POST"])
@@ -764,6 +816,8 @@ def add_body_weight():
     else:
         with db_connection() as connection:
             connection.execute("INSERT INTO body_weight_logs (member_id, weight, logged_on) VALUES (?, ?, ?) ON CONFLICT(member_id, logged_on) DO UPDATE SET weight=excluded.weight", (member["id"], weight, logged_on))
+            latest = connection.execute("SELECT weight FROM body_weight_logs WHERE member_id=? ORDER BY logged_on DESC, id DESC LIMIT 1", (member["id"],)).fetchone()
+            connection.execute("UPDATE members SET weight=? WHERE id=?", (latest["weight"], member["id"]))
         flash("Body weight saved.")
     return redirect(url_for("progress"))
 
@@ -781,6 +835,9 @@ def edit_body_weight(log_id):
     try:
         with db_connection() as connection:
             changed = connection.execute("UPDATE body_weight_logs SET weight=?, logged_on=? WHERE id=? AND member_id=?", (weight, logged_on, log_id, member["id"])).rowcount
+            latest = connection.execute("SELECT weight FROM body_weight_logs WHERE member_id=? ORDER BY logged_on DESC, id DESC LIMIT 1", (member["id"],)).fetchone()
+            if latest:
+                connection.execute("UPDATE members SET weight=? WHERE id=?", (latest["weight"], member["id"]))
         if not changed:
             abort(404)
     except sqlite3.IntegrityError:
@@ -797,6 +854,9 @@ def delete_body_weight(log_id):
         return redirect(url_for("login"))
     with db_connection() as connection:
         changed = connection.execute("DELETE FROM body_weight_logs WHERE id=? AND member_id=?", (log_id, member["id"])).rowcount
+        latest = connection.execute("SELECT weight FROM body_weight_logs WHERE member_id=? ORDER BY logged_on DESC, id DESC LIMIT 1", (member["id"],)).fetchone()
+        if latest:
+            connection.execute("UPDATE members SET weight=? WHERE id=?", (latest["weight"], member["id"]))
     if not changed:
         abort(404)
     flash("Body weight entry deleted.")

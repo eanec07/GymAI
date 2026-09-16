@@ -34,13 +34,19 @@ def calculate_nutrition(age, sex, weight, height, goal, days):
         calories = tdee
         goal_type = "Maintenance"
 
-    # Protein target
+    # Macro targets are deterministic planning defaults, not medical advice.
     protein = weight * 0.8
+    fat = max(35, round((calories * .25) / 9))
+    carbs = max(0, round((calories - protein * 4 - fat * 9) / 4))
+    fiber = max(20, round(calories / 1000 * 14))
 
     return {
         "goal_type": goal_type,
         "bmr": round(bmr),
         "tdee": round(tdee),
         "calories": round(calories),
-        "protein": round(protein)
+        "protein": round(protein),
+        "carbs": carbs,
+        "fat": fat,
+        "fiber": fiber,
     }

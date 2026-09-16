@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import sys
 import types
+from datetime import date
 from unittest.mock import patch
 import services.ai_coach as coach_module
 from services.ai_coach import CoachService
@@ -15,7 +16,7 @@ class CoachServiceTests(unittest.TestCase):
         self.file.close()
         connection = sqlite3.connect(self.file.name)
         try:
-            today = connection.execute("SELECT date('now')").fetchone()[0]
+            today = date.today().isoformat()
             connection.executescript("""
                 CREATE TABLE members (id INTEGER PRIMARY KEY, age INTEGER, sex TEXT, weight REAL, height REAL, goal TEXT, training_style TEXT, experience TEXT, days INTEGER, session_minutes INTEGER, equipment TEXT, equipment_notes TEXT, limitations TEXT, favorite_exercises TEXT, avoid_exercises TEXT, custom_goal TEXT DEFAULT '', split_preference TEXT DEFAULT 'auto', goal_weight REAL);
                 CREATE TABLE training_preferences (member_id INTEGER, preference_key TEXT, preference_value TEXT);
@@ -91,6 +92,9 @@ class CoachServiceTests(unittest.TestCase):
         self.assertEqual(targets["today_logged"]["protein"], 350)
         self.assertEqual(history["days_logged"], 1)
         self.assertEqual(history["averages"]["calories"], 4900)
+        today = self.service.tools if self.service.tools else None
+        bound = CoachService(self.file.name, 1)
+        self.assertEqual(bound.tools.execute("get_today_nutrition", {"member_id": 2})["consumed"]["protein"], 350)
 
     def test_steps_substitutes_and_progress_summary(self):
         steps = self.service._tool(1, "get_steps")

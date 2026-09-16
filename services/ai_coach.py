@@ -3,9 +3,11 @@ import json
 import os
 import re
 import sqlite3
+from datetime import date
 from contextlib import closing
 
 from nutrition import calculate_nutrition
+from services.nutrition_tracking import daily_nutrition, recent_foods
 from training.exercise_repository import load_exercises
 from training.filtering import find_substitutes
 from training.models import TrainingGoal, UserProfile
@@ -167,7 +169,7 @@ class CoachService:
             if items:
                 return "From the SYLRIX library: " + "; ".join(f"{item['name']} ({item['equipment']})" for item in items) + "."
 
-        if any(word in lowered for word in ("pr", "personal record", "personal best")):
+        if re.search(r"\bpr\b", lowered) or "personal record" in lowered or "personal best" in lowered:
             exercise_query = exercise.name if exercise else next((term for term in ("bench", "squat", "deadlift") if term in lowered), "")
             records = self._tool(member_id, "get_pr_history", {"exercise_name": exercise_query, "limit": 5})
             if not records["records"]:
@@ -202,12 +204,11 @@ class CoachService:
                     return history["message"]
                 average = history["averages"]
                 return f"In your last 7 days, you logged nutrition on {history['days_logged']} day(s). Your average logged protein was {average['protein']:g} g and average calories were {average['calories']:g}."
-            data = self._tool(member_id, "get_nutrition_targets", {})
-            targets = data["targets"]
-            logged = data["today_logged"]
+            data = self._tool(member_id, "get_today_nutrition", {})
+            targets, logged, remaining = data["targets"], data["consumed"], data["remaining"]
             if "protein" in lowered:
-                return f"Your current SYLRIX protein target is {targets['protein']} g per day. You have logged {self._format_number(logged['protein'])} g today. Spread it across 3–5 meals when practical."
-            return f"Your current SYLRIX target is about {targets['calories']} calories and {targets['protein']} g protein per day for {targets['goal_type'].lower()}. You have logged {self._format_number(logged['calories'])} calories today."
+                return f"Your current SYLRIX protein target is {targets['protein']} g. You have logged {self._format_number(logged['protein'])} g today, with {self._format_number(remaining['protein'])} g remaining."
+            return f"Your target is about {targets['calories']} calories and {targets['protein']} g protein for {targets['goal_type'].lower()}. You have logged {self._format_number(logged['calories'])} calories, with {self._format_number(remaining['calories'])} calories remaining."
 
         if "step" in lowered:
             steps = self._tool(member_id, "get_steps", {})
@@ -277,7 +278,7 @@ class CoachService:
         arguments = arguments or {}
         # The model may never choose a member ID; this server-only argument is the
         # authenticated member identity supplied by the Flask route.
-        aliases = {"get_exercise_performance": "get_exercise_history", "get_personal_records": "get_pr_history", "get_nutrition_summary": "get_nutrition_targets", "get_recent_nutrition": "get_nutrition_history", "get_exercise_information": "find_exercise", "get_exercise_progression": "get_saved_progression", "get_recent_prs": "get_pr_history", "get_training_progress_summary": "get_progress_summary"}
+        aliases = {"get_exercise_performance": "get_exercise_history", "get_personal_records": "get_pr_history", "get_nutrition_summary": "get_today_nutrition", "get_recent_nutrition": "get_nutrition_history", "get_exercise_information": "find_exercise", "get_exercise_progression": "get_saved_progression", "get_recent_prs": "get_pr_history", "get_training_progress_summary": "get_progress_summary"}
         if name not in ALLOWED_TOOL_NAMES and name not in {"get_training_plan", "get_exercise_history", "get_pr_history", "get_nutrition_targets", "get_nutrition_history", "find_exercise"}:
             return {"message": "That tool is unavailable."}
         name = aliases.get(name, name)
@@ -368,10 +369,21 @@ class CoachService:
                     if key not in best or record["value"] > best[key]["value"]:
                         best[key] = record
                 return {"records": records, "best_by_type": best}
-            if name == "get_nutrition_targets":
+            if name in {"get_nutrition_targets", "get_today_nutrition"}:
+                summary = daily_nutrition(db, member)
+                if name == "get_today_nutrition":
+                    return summary
                 targets = calculate_nutrition(member["age"], member["sex"], member["weight"], member["height"], member["goal"], member["days"])
-                logged = db.execute("SELECT COALESCE(SUM(calories),0) calories, COALESCE(SUM(protein),0) protein, COALESCE(SUM(carbs),0) carbs, COALESCE(SUM(fat),0) fat FROM nutrition_logs WHERE member_id=? AND logged_on=date('now')", (member_id,)).fetchone()
+                logged = db.execute("SELECT COALESCE(SUM(calories),0) calories, COALESCE(SUM(protein),0) protein, COALESCE(SUM(carbs),0) carbs, COALESCE(SUM(fat),0) fat FROM nutrition_logs WHERE member_id=? AND logged_on=?", (member_id, date.today().isoformat())).fetchone()
                 return {"targets": targets, "today_logged": dict(logged)}
+            if name == "get_recent_foods":
+                return {"foods": [dict(row) for row in recent_foods(db, member_id, limit)], "message": "No foods have been logged yet." if not recent_foods(db, member_id, 1) else ""}
+            if name == "get_today_summary":
+                nutrition = daily_nutrition(db, member)
+                workout = db.execute("SELECT workout_name, workout_day, status FROM workout_sessions WHERE member_id=? AND status='active' ORDER BY started_at DESC LIMIT 1", (member_id,)).fetchone()
+                steps = db.execute("SELECT steps, goal FROM step_logs WHERE member_id=? AND logged_on=?", (member_id, date.today().isoformat())).fetchone()
+                weight = db.execute("SELECT weight, logged_on FROM body_weight_logs WHERE member_id=? ORDER BY logged_on DESC, id DESC LIMIT 1", (member_id,)).fetchone()
+                return {"workout": dict(workout) if workout else {"message": "No active workout."}, "nutrition": nutrition, "weight": dict(weight) if weight else {"weight": member["weight"]}, "steps": dict(steps) if steps else {"steps": 0, "goal": 8000}}
             if name == "get_nutrition_history":
                 rows = db.execute(
                     """SELECT logged_on, COALESCE(SUM(calories), 0) calories, COALESCE(SUM(protein), 0) protein,
