@@ -1,10 +1,16 @@
 import unittest
-
 from app import app, exercise_slug
-from training.exercise_repository import load_exercises
+from training.exercise_repository import _load_exercises, load_exercises
 
 
 class ExerciseLibraryTests(unittest.TestCase):
+    def test_repository_cache_preserves_exercise_results(self):
+        _load_exercises.cache_clear()
+        first = load_exercises()
+        second = load_exercises()
+        self.assertEqual(first, second)
+        self.assertEqual(_load_exercises.cache_info().misses, 1)
+
     def setUp(self):
         self.client = app.test_client()
 

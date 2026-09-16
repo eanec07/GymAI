@@ -8,11 +8,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='marketing.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='training-cards.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='app-screens.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='sylrix-fit.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=config.ASSET_VERSION) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='marketing.css', v=config.ASSET_VERSION) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='training-cards.css', v=config.ASSET_VERSION) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app-screens.css', v=config.ASSET_VERSION) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='sylrix-fit.css', v=config.ASSET_VERSION) }}">
   {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">

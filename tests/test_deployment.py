@@ -31,6 +31,13 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertIn(b"This page is not here", missing.data)
         self.assertNotIn(b"Traceback", missing.data)
 
+    def test_shared_shell_versions_authoritative_stylesheets(self):
+        page = self.client.get("/")
+        self.assertIn(b"sylrix-fit.css?v=", page.data)
+        asset = self.client.get("/static/sylrix-fit.css")
+        self.assertEqual(asset.status_code, 200)
+        asset.close()
+
     def test_csrf_rejects_missing_token_and_accepts_rendered_token(self):
         sylrix.csrf_enabled = True
         self.assertEqual(self.client.post("/register", data={}).status_code, 403)
