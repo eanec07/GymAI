@@ -27,11 +27,11 @@
           <a class="{% if request.endpoint in ['plan', 'app_workouts', 'active_workout', 'replace_session_exercise'] %}active{% endif %}" href="{{ url_for('plan') }}">Workout</a>
           <a class="{% if request.endpoint in ['exercises', 'exercise_detail'] %}active{% endif %}" href="{{ url_for('exercises') }}">Exercises</a>
           <a class="{% if request.endpoint == 'coach' %}active{% endif %}" href="{{ url_for('coach') }}">Coach</a>
-          <a class="{% if request.endpoint == 'readiness' %}active{% endif %}" href="{{ url_for('readiness') }}">Readiness</a>
           <a class="{% if request.endpoint == 'nutrition' %}active{% endif %}" href="{{ url_for('nutrition') }}">Nutrition</a><a class="{% if request.endpoint in ['progress', 'workout_history', 'workout_history_detail', 'exercise_progress'] %}active{% endif %}" href="{{ url_for('progress') }}">Progress</a>
+          <a class="{% if request.endpoint == 'app_profile' %}active{% endif %}" href="{{ url_for('app_profile') }}">Profile</a>
         </div>
         <details class="nav-more"><summary>More</summary><div class="more-menu">
-          <a href="{{ url_for('steps') }}">Steps</a><a href="{{ url_for('workout_history') }}">History</a><a href="{{ url_for('log_workout') }}">Log workout</a><a href="{{ url_for('app_profile') }}">Profile</a><a href="{{ url_for('logout') }}">Log out</a>
+          <a class="{% if request.endpoint == 'readiness' %}active{% endif %}" href="{{ url_for('readiness') }}">Readiness</a><a href="{{ url_for('steps') }}">Steps</a><a href="{{ url_for('workout_history') }}">History</a><a href="{{ url_for('log_workout') }}">Log workout</a><a href="{{ url_for('logout') }}">Log out</a>
         </div></details>
         {% else %}
         <a href="{{ url_for('home') }}">Home</a><a href="{{ url_for('exercises') }}">Exercises</a><a href="{{ url_for('login') }}">Log in</a><a class="nav-cta" href="{{ url_for('register') }}">Get started</a>
