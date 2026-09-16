@@ -596,12 +596,13 @@ def coach():
     member = require_member()
     if not member:
         return redirect(url_for("login"))
-    service = CoachService(DATABASE)
+    # Bind Coach to this authenticated member once; the model never supplies IDs.
+    service = CoachService(DATABASE, member["id"])
     if request.method == "POST" and request.form.get("message", "").strip():
         message = request.form["message"].strip()[:2000]
         with db_connection() as connection:
             connection.execute("INSERT INTO coach_messages (member_id, role, message) VALUES (?, 'user', ?)", (member["id"], message))
-        answer = service.reply(member["id"], message)
+        answer = service.reply(message)
         with db_connection() as connection:
             connection.execute("INSERT INTO coach_messages (member_id, role, message) VALUES (?, 'assistant', ?)", (member["id"], answer))
     with db_connection() as connection:

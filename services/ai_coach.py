@@ -12,6 +12,7 @@ from training.models import TrainingGoal, UserProfile
 from training.progression import get_progression_recommendation
 from workouts import generate_workout
 from services.coach_prompt import SYSTEM_INSTRUCTIONS
+from services.coach_tools import CoachToolRegistry, TOOL_DEFINITIONS as REGISTRY_TOOL_DEFINITIONS
 
 MODEL = os.environ.get("SYLRIX_AI_MODEL", "gpt-5.6-terra")
 COACH_MODE = os.environ.get("SYLRIX_COACH_MODE", "local").lower()
@@ -44,12 +45,17 @@ TOOL_DEFINITIONS = [
 ]
 ALLOWED_TOOL_NAMES = {tool["name"] for tool in TOOL_DEFINITIONS}
 MAX_TOOL_ITERATIONS = 4
+# The registry owns the provider contract; this compatibility alias preserves
+# imports used by existing integrations while moving schemas out of this service.
+TOOL_DEFINITIONS = REGISTRY_TOOL_DEFINITIONS
 
 
 class CoachService:
-    def __init__(self, database_path):
+    def __init__(self, database_path, member_id=None):
         self.database_path = database_path
+        self.member_id = member_id
         self.last_error = None
+        self.tools = CoachToolRegistry(member_id, self._tool) if member_id is not None else None
 
     @property
     def configured(self):
@@ -399,7 +405,15 @@ class CoachService:
                 return [{"exercise": item.exercise.name, "score": item.score, "reason": item.reason} for item in results]
         return {"message": "That tool is unavailable."}
 
-    def reply(self, member_id, message):
+    def reply(self, member_id, message=None):
+        """Reply for the member bound at construction; legacy calls still work."""
+        if message is None:
+            message, member_id = member_id, self.member_id
+        if member_id is None:
+            return "SYLRIX Coach needs an authenticated member profile before it can help."
+        if self.tools is None or self.member_id != member_id:
+            self.member_id = member_id
+            self.tools = CoachToolRegistry(member_id, self._tool)
         if not self.configured:
             return self.local_reply(member_id, message)
         try:
@@ -410,7 +424,7 @@ class CoachService:
             if not context or context[-1]["content"] != message:
                 context.append({"role": "user", "content": message})
             client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-            response = client.responses.create(model=MODEL, instructions=SYSTEM_INSTRUCTIONS, input=context, tools=TOOL_DEFINITIONS)
+            response = client.responses.create(model=MODEL, instructions=SYSTEM_INSTRUCTIONS, input=context, tools=self.tools.definitions)
             for _ in range(MAX_TOOL_ITERATIONS):
                 calls = [item for item in getattr(response, "output", []) if getattr(item, "type", "") == "function_call"]
                 if not calls:
@@ -419,11 +433,11 @@ class CoachService:
                 for call in calls:
                     try:
                         arguments = json.loads(getattr(call, "arguments", "{}") or "{}")
-                        result = self._tool(member_id, getattr(call, "name", ""), arguments)
+                        result = self.tools.execute(getattr(call, "name", ""), arguments)
                     except (TypeError, ValueError, json.JSONDecodeError):
                         result = {"message": "The requested Coach tool could not be read safely."}
                     outputs.append({"type": "function_call_output", "call_id": call.call_id, "output": json.dumps(result)})
-                response = client.responses.create(model=MODEL, instructions=SYSTEM_INSTRUCTIONS, input=outputs, previous_response_id=getattr(response, "id", None), tools=TOOL_DEFINITIONS)
+                response = client.responses.create(model=MODEL, instructions=SYSTEM_INSTRUCTIONS, input=outputs, previous_response_id=getattr(response, "id", None), tools=self.tools.definitions)
             self.last_error = "tool_iteration_limit"
             return "I could not complete that data lookup safely. Try a more specific question."
         except Exception as error:
