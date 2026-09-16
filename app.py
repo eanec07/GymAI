@@ -337,7 +337,9 @@ def app_dashboard():
         completed_this_week = connection.execute("SELECT COUNT(*) FROM workout_sessions WHERE member_id = ? AND status = 'completed' AND completed_at >= datetime('now', '-7 days')", (member["id"],)).fetchone()[0]
         latest_weight = connection.execute("SELECT weight, logged_on FROM body_weight_logs WHERE member_id=? ORDER BY logged_on DESC, id DESC LIMIT 1", (member["id"],)).fetchone()
         progression = connection.execute("SELECT exercise_name, recommended_weight, recommended_reps, progression_action FROM exercise_progression_state WHERE member_id=? ORDER BY updated_at DESC LIMIT 1", (member["id"],)).fetchone()
-    return render_template("dashboard.html", member=member, nutrition=nutrition, recent_logs=recent_logs, today_steps=today_steps, active_session=active_session, recent_sessions=recent_sessions, latest_pr=latest_pr, completed_this_week=completed_this_week, latest_weight=latest_weight, progression=progression)
+    hour = datetime.now().hour
+    greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
+    return render_template("dashboard.html", member=member, nutrition=nutrition, recent_logs=recent_logs, today_steps=today_steps, active_session=active_session, recent_sessions=recent_sessions, latest_pr=latest_pr, completed_this_week=completed_this_week, latest_weight=latest_weight, progression=progression, greeting=greeting)
 
 
 @app.route("/register", methods=["GET", "POST"])

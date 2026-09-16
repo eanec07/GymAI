@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="app-screen coach-shell">
-  <div class="coach-identity"><div class="coach-orb" aria-hidden="true">SC</div><div><p class="eyebrow">SYLRIX Coach</p><p class="coach-status">● {% if local_mode %}Local intelligence active{% else %}AI connection active{% endif %}</p></div></div>
+  {% include 'components/coach_identity.html' %}
   <h1>Practical guidance for your training.</h1>
   <p class="screen-lead">Clear answers based on your plan, workouts, nutrition targets, and steps.</p>
   {% if local_mode %}<div class="coach-notice"><strong>Free local Coach mode is on.</strong><span>No OpenAI requests or API credits are being used.</span></div>{% endif %}
