@@ -1,0 +1,10 @@
+{
+  "name": "SYLRIX.FIT",
+  "short_name": "SYLRIX",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#080909",
+  "theme_color": "#080909",
+  "orientation": "any"
+}

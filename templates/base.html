@@ -4,7 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#080909">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>{% block title %}SYLRIX.FIT{% endblock %}</title>
+  <link rel="manifest" href="{{ url_for('web_app_manifest') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -31,7 +35,7 @@
           <a class="{% if request.endpoint == 'app_profile' %}active{% endif %}" href="{{ url_for('app_profile') }}">Profile</a>
         </div>
         <details class="nav-more"><summary>More</summary><div class="more-menu">
-          <a class="{% if request.endpoint == 'readiness' %}active{% endif %}" href="{{ url_for('readiness') }}">Readiness</a><a href="{{ url_for('steps') }}">Steps</a><a href="{{ url_for('workout_history') }}">History</a><a href="{{ url_for('log_workout') }}">Log workout</a><a href="{{ url_for('logout') }}">Log out</a>
+          <a class="{% if request.endpoint == 'readiness' %}active{% endif %}" href="{{ url_for('readiness') }}">Readiness</a><a href="{{ url_for('steps') }}">Steps</a><a href="{{ url_for('workout_history') }}">History</a><a href="{{ url_for('log_workout') }}">Log workout</a><button class="pwa-install" id="pwa-install" type="button" hidden>Install SYLRIX.FIT</button><a href="{{ url_for('logout') }}">Log out</a>
         </div></details>
         {% else %}
         <a href="{{ url_for('home') }}">Home</a><a href="{{ url_for('exercises') }}">Exercises</a><a href="{{ url_for('login') }}">Log in</a><a class="nav-cta" href="{{ url_for('register') }}">Get started</a>
@@ -41,6 +45,6 @@
   </header>
   {% block shell %}<main>{% with messages = get_flashed_messages() %}{% if messages %}<div class="flash-stack">{% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}{% block content %}{% endblock %}</main>{% endblock %}
   <footer class="site-footer"><div><strong>SYLRIX.FIT</strong><span>Built around the work you actually log.</span></div><span><a href="{{ url_for('privacy') }}">Privacy</a> · <a href="{{ url_for('terms') }}">Terms</a></span></footer>
-  <script>document.querySelector('.nav-toggle')?.addEventListener('click',function(){const nav=document.querySelector('#site-navigation'),open=nav.classList.toggle('open');this.setAttribute('aria-expanded',open)});document.querySelectorAll('form[method="post"]').forEach(form=>{if(!form.querySelector('[name="csrf_token"]')){const input=document.createElement('input');input.type='hidden';input.name='csrf_token';input.value='{{ csrf_token }}';form.append(input)}});</script>
+  <script>document.querySelector('.nav-toggle')?.addEventListener('click',function(){const nav=document.querySelector('#site-navigation'),open=nav.classList.toggle('open');this.setAttribute('aria-expanded',open)});document.querySelectorAll('form[method="post"]').forEach(form=>{if(!form.querySelector('[name="csrf_token"]')){const input=document.createElement('input');input.type='hidden';input.name='csrf_token';input.value='{{ csrf_token }}';form.append(input)}});</script><script src="{{ url_for('static', filename='pwa.js', v=config.ASSET_VERSION) }}" defer></script>
 </body>
 </html>

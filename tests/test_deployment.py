@@ -40,6 +40,24 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertEqual(asset.status_code, 200)
         asset.close()
 
+    def test_pwa_public_shell_never_caches_member_pages(self):
+        page = self.client.get("/")
+        self.assertIn(b'rel="manifest"', page.data)
+        self.assertIn(b"pwa.js?v=", page.data)
+        manifest = self.client.get("/manifest.webmanifest")
+        self.assertEqual(manifest.status_code, 200)
+        self.assertEqual(manifest.get_json()["display"], "standalone")
+        manifest.close()
+        worker = self.client.get("/service-worker.js")
+        self.assertEqual(worker.status_code, 200)
+        self.assertIn(b"sylrix-public-", worker.data)
+        self.assertIn(b"/static/offline.html", worker.data)
+        self.assertNotIn(b"'/app'", worker.data)
+        offline = self.client.get("/static/offline.html")
+        self.assertEqual(offline.status_code, 200)
+        self.assertIn(b"Connection required", offline.data)
+        offline.close()
+
     def test_csrf_rejects_missing_token_and_accepts_rendered_token(self):
         sylrix.csrf_enabled = True
         self.assertEqual(self.client.post("/register", data={}).status_code, 403)
@@ -125,6 +143,7 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertEqual(self.client.post("/login", data={"identity": "beta_lifter", "password": "safe-password-123"}).status_code, 302)
         dashboard = self.client.get("/app")
         self.assertEqual(dashboard.status_code, 200)
+        self.assertEqual(dashboard.headers["Cache-Control"], "private, no-store")
         self.assertIn(b"Breakfast", self.client.get(f"/nutrition?date={today}").data)
         self.assertIn(b"Beta Lifter", dashboard.data)
 
