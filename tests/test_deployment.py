@@ -58,6 +58,42 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertIn(b"Connection required", offline.data)
         offline.close()
 
+    def test_mobile_shell_keeps_portrait_navigation_and_pwa_product_name(self):
+        page = self.client.get("/")
+        self.assertIn(b'<meta name="viewport" content="width=device-width, initial-scale=1">', page.data)
+        self.assertIn(b'aria-controls="site-navigation"', page.data)
+        self.assertIn(b"closeNavigation", page.data)
+        self.assertIn(b"event.key === 'Escape'", page.data)
+        page.close()
+        manifest_response = self.client.get("/manifest.webmanifest")
+        manifest = manifest_response.get_json()
+        manifest_response.close()
+        self.assertEqual(manifest["name"], "SYLRIX.FIT")
+        self.assertEqual(manifest["short_name"], "SYLRIX.FIT")
+        self.assertEqual(manifest["orientation"], "any")
+
+        product_response = self.client.get("/static/sylrix-fit.css")
+        product_css = product_response.get_data(as_text=True)
+        product_response.close()
+        self.assertIn("Portrait-first shell", product_css)
+        self.assertIn(".nav-links.open{display:flex!important}", product_css)
+        self.assertIn(".active-workout-screen .set-row{grid-template-columns:repeat(3,minmax(0,1fr)) auto!important", product_css)
+        training_response = self.client.get("/static/training-cards.css")
+        training_css = training_response.get_data(as_text=True)
+        training_response.close()
+        self.assertIn(".training-card-overlay", training_css)
+        self.assertIn(".training-card--powerlifting img", training_css)
+
+    def test_coach_styles_use_the_sylrix_palette(self):
+        stylesheet_response = self.client.get("/static/app-screens.css")
+        stylesheet = stylesheet_response.get_data(as_text=True)
+        stylesheet_response.close()
+        self.assertIn("#0B0B0B", stylesheet)
+        self.assertIn("#1A1E26", stylesheet)
+        self.assertIn("#C0C0C0", stylesheet)
+        self.assertIn("#E53935", stylesheet)
+        self.assertNotIn("#d8ff75", stylesheet.lower())
+
     def test_approved_brand_assets_are_served_and_referenced(self):
         expected_assets = {
             "/favicon.ico": "",
