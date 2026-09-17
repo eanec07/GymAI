@@ -9,6 +9,7 @@ Set these values in the deployment platform's secret/environment manager; do not
 - `SYLRIX_ENV=production`
 - `SYLRIX_SECRET_KEY` — a unique high-entropy secret
 - `SYLRIX_DATABASE_PATH` — an absolute path on a persistent volume
+- `SYLRIX_UPLOAD_PATH` — an absolute uploads directory on that persistent volume
 - `SYLRIX_COOKIE_SECURE=1`
 - `SYLRIX_CSRF_ENABLED=1`
 
@@ -28,7 +29,17 @@ Do not run `python app.py` in production; it intentionally refuses production mo
 
 ## SQLite and storage
 
-SQLite is suitable only for a small beta with a persistent disk and modest concurrent writes. Mount the same persistent volume for `SYLRIX_DATABASE_PATH` and the `uploads/` directory across restarts. Do not deploy to ephemeral filesystem storage.
+SQLite is suitable only for a small beta with a persistent disk and modest concurrent writes. Mount a persistent volume for both `SYLRIX_DATABASE_PATH` and `SYLRIX_UPLOAD_PATH` across restarts. Do not deploy to ephemeral filesystem storage.
+
+The application does not hardcode a hosting path. A typical mounted-volume layout is:
+
+```
+/data/
+  sylrix.db
+  uploads/
+```
+
+Configure the deployment platform with paths equivalent to `SYLRIX_DATABASE_PATH=/data/sylrix.db` and `SYLRIX_UPLOAD_PATH=/data/uploads`. The app creates the configured uploads directory when it starts; do not move or delete existing local uploads during deployment.
 
 Run a small number of Gunicorn workers (the provided command uses two). SQLite locking and single-node storage mean this architecture must be replaced with a managed multi-user database before a larger public launch or horizontal scaling.
 

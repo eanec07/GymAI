@@ -65,7 +65,9 @@ TRAINING_PREFERENCE_FIELDS = {
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE = Path(os.environ.get("SYLRIX_DATABASE_PATH", str(BASE_DIR / "sylrix.db")))
 LEGACY_DATABASES = (BASE_DIR / "sylrix_ai.db", BASE_DIR / "renata_ai.db", BASE_DIR / "gymai.db")
-UPLOAD_DIR = BASE_DIR / "uploads"
+# A deployment may mount uploads separately from the application source tree.
+# Keep the repository-local directory as the no-configuration development default.
+UPLOAD_DIR = Path(os.environ.get("SYLRIX_UPLOAD_PATH", str(BASE_DIR / "uploads")))
 ALLOWED_IMAGE_TYPES = {"png", "jpg", "jpeg", "webp"}
 
 app = Flask(__name__)
