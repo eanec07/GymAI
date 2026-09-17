@@ -7,9 +7,10 @@ import logging
 import secrets
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 
-from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, session, url_for
+from flask import Flask, abort, flash, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from PIL import Image, UnidentifiedImageError
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -28,6 +29,7 @@ from training.progression import get_progression_recommendation
 from training.prs import detect_prs
 from training.adaptive import apply_progression_states, progression_state, progression_states, recommendation_for_session, save_progression_state
 from muscles import diagram_regions, display_muscle
+from services.i18n import display_exercise, display_muscle_localized, normalize_language, translate
 
 TRAINING_CATEGORIES = {
     "bodybuilding": ("Bodybuilding", "Build muscle through balanced hypertrophy training, practical volume, and progressive overload.", "Bodybuilding"),
@@ -79,7 +81,7 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 is_production = os.environ.get("SYLRIX_ENV") == "production"
 csrf_enabled = os.environ.get("SYLRIX_CSRF_ENABLED", "1" if is_production else "0") == "1"
 app.config["BETA_MODE"] = os.environ.get("SYLRIX_BETA_MODE") == "1"
-app.config["ASSET_VERSION"] = os.environ.get("SYLRIX_ASSET_VERSION", "20260919")
+app.config["ASSET_VERSION"] = os.environ.get("SYLRIX_ASSET_VERSION", "20260920")
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SYLRIX_COOKIE_SECURE", "1" if is_production else "0") == "1"
 
 if is_production and app.config["SECRET_KEY"] == "change-this-before-deploying":
@@ -96,6 +98,18 @@ def csrf_context():
         token = secrets.token_urlsafe(32)
         session["csrf_token"] = token
     return {"csrf_token": token}
+
+
+@app.context_processor
+def localization_context():
+    language = selected_language()
+    return {
+        "language": language,
+        "t": lambda text: translate(text, language),
+        "display_exercise": lambda name: display_exercise(name, language),
+        "display_muscle_localized": lambda name: display_muscle_localized(name, language),
+        "language_return_to": request.full_path if request.query_string else request.path,
+    }
 
 
 @app.before_request
@@ -141,6 +155,7 @@ def setup_database():
             CREATE TABLE IF NOT EXISTS body_weight_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, weight REAL NOT NULL, logged_on TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(member_id, logged_on), FOREIGN KEY(member_id) REFERENCES members(id));
             CREATE TABLE IF NOT EXISTS exercise_progression_state (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, exercise_name TEXT NOT NULL, last_session_id INTEGER, recommended_weight REAL, recommended_reps TEXT, recommended_rpe REAL, progression_action TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', consecutive_misses INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(member_id, exercise_name), FOREIGN KEY(member_id) REFERENCES members(id), FOREIGN KEY(last_session_id) REFERENCES workout_sessions(id));
             CREATE TABLE IF NOT EXISTS daily_readiness (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, logged_on TEXT NOT NULL, sleep_hours REAL NOT NULL, sleep_quality INTEGER NOT NULL, energy INTEGER NOT NULL, soreness INTEGER NOT NULL, stress INTEGER NOT NULL, motivation INTEGER NOT NULL, notes TEXT NOT NULL DEFAULT '', score INTEGER NOT NULL, classification TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(member_id, logged_on), FOREIGN KEY(member_id) REFERENCES members(id));
+            CREATE TABLE IF NOT EXISTS workout_shares (id INTEGER PRIMARY KEY AUTOINCREMENT, member_id INTEGER NOT NULL, workout_session_id INTEGER NOT NULL, share_token TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, revoked_at TEXT, UNIQUE(member_id, workout_session_id), FOREIGN KEY(member_id) REFERENCES members(id), FOREIGN KEY(workout_session_id) REFERENCES workout_sessions(id));
             CREATE INDEX IF NOT EXISTS idx_workout_sessions_member_status ON workout_sessions(member_id, status);
             CREATE INDEX IF NOT EXISTS idx_workout_sets_session ON workout_sets(session_id);
             CREATE INDEX IF NOT EXISTS idx_nutrition_logs_member_date ON nutrition_logs(member_id, logged_on);
@@ -149,6 +164,7 @@ def setup_database():
             CREATE INDEX IF NOT EXISTS idx_progression_state_member_exercise ON exercise_progression_state(member_id, exercise_name);
             CREATE INDEX IF NOT EXISTS idx_coach_messages_member_id ON coach_messages(member_id, id);
             CREATE INDEX IF NOT EXISTS idx_daily_readiness_member_date ON daily_readiness(member_id, logged_on);
+            CREATE INDEX IF NOT EXISTS idx_workout_shares_token_status ON workout_shares(share_token, status);
         """)
         member_columns = {row[1] for row in connection.execute("PRAGMA table_info(members)")}
         for column, definition in {
@@ -162,6 +178,7 @@ def setup_database():
             "avoid_exercises": "TEXT NOT NULL DEFAULT ''",
             "goal_weight": "REAL",
             "auto_rest_timer": "INTEGER NOT NULL DEFAULT 1",
+            "language": "TEXT NOT NULL DEFAULT 'en'",
         }.items():
             if column not in member_columns:
                 connection.execute(f"ALTER TABLE members ADD COLUMN {column} {definition}")
@@ -209,6 +226,25 @@ def require_member():
     if not member:
         flash("Create your member profile first.")
     return member
+
+
+def selected_language():
+    """Member preference wins; guests receive a session-scoped safe default."""
+    member = current_member()
+    if member:
+        return normalize_language(member["language"])
+    return normalize_language(session.get("language", "en"))
+
+
+def safe_return_target(value):
+    return value if value and value.startswith("/") and not value.startswith("//") else url_for("home")
+
+
+def public_share_url(share_token):
+    base_url = os.environ.get("SYLRIX_PUBLIC_BASE_URL", "").rstrip("/")
+    if base_url:
+        return f"{base_url}{url_for('guest_workout', share_token=share_token)}"
+    return url_for("guest_workout", share_token=share_token, _external=True)
 
 
 def valid_training_style(value):
@@ -359,6 +395,18 @@ def health():
         app.logger.exception("Health check database failure")
         return {"status": "unavailable"}, 503
     return {"status": "ok"}
+
+
+@app.route("/language", methods=["POST"])
+def set_language():
+    """Persist a member preference or retain a guest preference in the session."""
+    language = normalize_language(request.form.get("language", "en"))
+    member = current_member()
+    if member:
+        with db_connection() as connection:
+            connection.execute("UPDATE members SET language=? WHERE id=?", (language, member["id"]))
+    session["language"] = language
+    return redirect(safe_return_target(request.form.get("return_to", "")))
 
 
 @app.route("/manifest.webmanifest")
@@ -643,6 +691,118 @@ def active_workout(day_number):
     return render_template("active_workout.html", member=member, workout=workout, workout_session=active, sets_by_exercise=by_exercise, previous_by_exercise=previous_by_exercise, overrides=overrides, completed_sets=completed_sets, working_sets=working_sets, completed_exercises=completed_exercises, readiness=readiness, readiness_recommendation=training_recommendation(readiness, recent_completed, bool(has_progression)), exercise_slug=exercise_slug)
 
 
+def new_share_token():
+    """Opaque, high-entropy capability token; never derived from database IDs."""
+    return secrets.token_urlsafe(32)
+
+
+def guest_workout_data(share_token):
+    """Return a deliberately minimal, read-only public workout projection."""
+    with db_connection() as connection:
+        share = connection.execute(
+            """SELECT workout_sessions.id, workout_sessions.workout_name, workout_sessions.training_style
+               FROM workout_shares JOIN workout_sessions ON workout_sessions.id=workout_shares.workout_session_id
+               WHERE workout_shares.share_token=? AND workout_shares.status='active'""",
+            (share_token,),
+        ).fetchone()
+        if not share:
+            return None
+        rows = connection.execute(
+            """SELECT exercise_name, exercise_order, set_number, target_reps, target_weight, target_rpe, is_warmup
+               FROM workout_sets WHERE session_id=? AND skipped=0
+               ORDER BY exercise_order, is_warmup DESC, set_number""",
+            (share["id"],),
+        ).fetchall()
+    library = {exercise.name: exercise for exercise in load_exercises()}
+    exercises = []
+    by_name = {}
+    for row in rows:
+        entry = by_name.get(row["exercise_name"])
+        if entry is None:
+            source = library.get(row["exercise_name"])
+            entry = {
+                "canonical_name": row["exercise_name"],
+                "instructions": source.instructions if source else (),
+                "muscles": source.primary_muscles if source else (),
+                "sets": [],
+            }
+            by_name[row["exercise_name"]] = entry
+            exercises.append(entry)
+        entry["sets"].append({
+            "set_number": row["set_number"], "target_reps": row["target_reps"],
+            "target_weight": row["target_weight"], "target_rpe": row["target_rpe"],
+            "is_warmup": bool(row["is_warmup"]),
+        })
+    return {
+        "title": share["workout_name"],
+        "rest_seconds": 180 if any(term in share["training_style"].lower() for term in ("strength", "power")) else 90,
+        "exercises": exercises,
+    }
+
+
+@app.route("/workout/session/<int:session_id>/share", methods=["GET", "POST"])
+def share_workout(session_id):
+    member = require_member()
+    session_row = session_for_member(session_id, member["id"]) if member else None
+    if not session_row:
+        abort(404)
+    if request.method == "POST":
+        action = request.form.get("action", "create")
+        with db_connection() as connection:
+            if action == "revoke":
+                connection.execute(
+                    "UPDATE workout_shares SET status='revoked', revoked_at=CURRENT_TIMESTAMP WHERE member_id=? AND workout_session_id=? AND status='active'",
+                    (member["id"], session_id),
+                )
+                flash("The public workout link was revoked.")
+            elif action in {"create", "regenerate"}:
+                token = new_share_token()
+                connection.execute(
+                    """INSERT INTO workout_shares (member_id, workout_session_id, share_token, status, revoked_at)
+                       VALUES (?, ?, ?, 'active', NULL)
+                       ON CONFLICT(member_id, workout_session_id) DO UPDATE SET share_token=excluded.share_token, status='active', revoked_at=NULL, created_at=CURRENT_TIMESTAMP""",
+                    (member["id"], session_id, token),
+                )
+                flash("A private guest workout link is ready to share.")
+            else:
+                abort(400)
+        return redirect(url_for("share_workout", session_id=session_id))
+    with db_connection() as connection:
+        share = connection.execute(
+            "SELECT share_token, status FROM workout_shares WHERE member_id=? AND workout_session_id=?",
+            (member["id"], session_id),
+        ).fetchone()
+    share_url = public_share_url(share["share_token"]) if share and share["status"] == "active" else None
+    return render_template("share_workout.html", workout_session=session_row, share=share, share_url=share_url)
+
+
+@app.route("/w/<share_token>")
+def guest_workout(share_token):
+    workout = guest_workout_data(share_token)
+    if not workout:
+        response = app.make_response(render_template("guest_unavailable.html"))
+        response.status_code = 404
+    else:
+        response = app.make_response(render_template("guest_workout.html", workout=workout))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/w/<share_token>/qr.png")
+def guest_workout_qr(share_token):
+    if not guest_workout_data(share_token):
+        abort(404)
+    import qrcode
+
+    image = qrcode.make(public_share_url(share_token))
+    output = BytesIO()
+    image.save(output, format="PNG")
+    output.seek(0)
+    response = send_file(output, mimetype="image/png", max_age=0)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.route("/workout/session/<int:session_id>/readiness-adjustment", methods=["POST"])
 def apply_readiness_adjustment(session_id):
     member = require_member()
@@ -852,7 +1012,7 @@ def coach():
     if not member:
         return redirect(url_for("login"))
     # Bind Coach to this authenticated member once; the model never supplies IDs.
-    service = CoachService(DATABASE, member["id"])
+    service = CoachService(DATABASE, member["id"], member["language"])
     if request.method == "POST" and request.form.get("message", "").strip():
         message = request.form["message"].strip()[:2000]
         with db_connection() as connection:

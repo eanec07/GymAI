@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}{{ t('Share workout') }} · SYLRIX.FIT{% endblock %}
+{% block content %}
+<section class="app-screen share-screen"><p class="eyebrow">SYLRIX.FIT / {{ t('Share workout') }}</p><h1>{{ workout_session.workout_name }}</h1><p class="screen-lead">Create a read-only guest link. It never exposes your profile, notes, history, nutrition, or progress data.</p>
+{% if share_url %}
+<section class="share-card"><p class="eyebrow">{{ t('Active link') }}</p><img class="share-qr" src="{{ url_for('guest_workout_qr', share_token=share.share_token) }}" alt="QR code for shared workout"><label>{{ t('Share workout') }}<input id="share-url" readonly value="{{ share_url }}"></label><div class="share-actions"><button type="button" id="copy-share">{{ t('Copy link') }}</button><a class="button" href="{{ url_for('guest_workout', share_token=share.share_token) }}" target="_blank" rel="noopener">{{ t('Show QR') }}</a><form method="post"><input type="hidden" name="action" value="regenerate"><button class="quiet-button">{{ t('Regenerate link') }}</button></form><form method="post"><input type="hidden" name="action" value="revoke"><button class="quiet-danger">{{ t('Revoke link') }}</button></form></div></section>
+{% else %}<form method="post" class="share-card"><input type="hidden" name="action" value="create"><button>{{ t('Share workout') }}</button></form>{% endif %}
+</section>
+{% if share_url %}<script>document.querySelector('#copy-share')?.addEventListener('click',async()=>{await navigator.clipboard?.writeText(document.querySelector('#share-url').value);document.querySelector('#copy-share').textContent='{{ t('Copied') }}'})</script>{% endif %}
+{% endblock %}

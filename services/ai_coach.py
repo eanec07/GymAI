@@ -58,9 +58,10 @@ ALLOWED_TOOL_NAMES = REGISTRY_ALLOWED_TOOL_NAMES
 
 
 class CoachService:
-    def __init__(self, database_path, member_id=None):
+    def __init__(self, database_path, member_id=None, language="en"):
         self.database_path = database_path
         self.member_id = member_id
+        self.language = language if language in {"en", "es"} else "en"
         self.last_error = None
         self.tools = CoachToolRegistry(member_id, self._tool) if member_id is not None else None
 
@@ -149,6 +150,9 @@ class CoachService:
         question = (message or "").strip()
         lowered = question.lower()
         exercise = self._exercise_in_message(question)
+
+        if self.language == "es":
+            return self.local_reply_spanish(member_id, lowered)
 
         # Safety comes before an ordinary training recommendation.
         urgent_words = ("chest pain", "trouble breathing", "can't breathe", "numb", "tingling", "sudden weakness", "major swelling")
@@ -457,6 +461,26 @@ class CoachService:
                 return [{"exercise": item.exercise.name, "score": item.score, "reason": item.reason} for item in results]
         return {"message": "That tool is unavailable."}
 
+    def local_reply_spanish(self, member_id, lowered):
+        """Keep data tools canonical while returning deterministic Spanish guidance."""
+        if any(word in lowered for word in ("dolor", "lesión", "lesion", "herido")):
+            return "Puedo ofrecer orientación general de entrenamiento, pero no diagnostico lesiones. Detén cualquier movimiento que cause dolor agudo o que empeore y considera consultar a un profesional de salud."
+        if any(word in lowered for word in ("preparación", "preparacion", "entrenar hoy", "recuperación", "recuperacion")):
+            recommendation = self._tool(member_id, "get_today_training_recommendation", {})
+            if not recommendation.get("readiness"):
+                return "Completa el registro rápido de preparación para recibir una recomendación para hoy."
+            readiness = recommendation["readiness"]
+            return f"Tu preparación de hoy es {readiness['score']}/100 ({readiness['classification']}). {recommendation['message']}"
+        if "prote" in lowered or "calor" in lowered or "macro" in lowered:
+            data = self._tool(member_id, "get_today_nutrition", {})
+            return f"Tu objetivo actual es aproximadamente {data['targets']['calories']} calorías y {data['targets']['protein']} g de proteína."
+        if "paso" in lowered:
+            return "Agrega los pasos de hoy en la página Pasos para que pueda usarlos aquí."
+        if any(word in lowered for word in ("plan", "entrenamiento", "rutina", "hoy")):
+            plan = self._tool(member_id, "get_training_plan", {})
+            return "Tu plan actual: " + "; ".join(f"Día {day['day']}: {day['name']}" for day in plan) + "."
+        return "Puedo ayudarte con tu plan, progresión, nutrición, pasos, preparación o sustituciones. Pregunta, por ejemplo: «¿Qué debo entrenar hoy?»"
+
     def reply(self, member_id, message=None):
         """Reply for the member bound at construction; legacy calls still work."""
         if message is None:
@@ -476,7 +500,8 @@ class CoachService:
             if not context or context[-1]["content"] != message:
                 context.append({"role": "user", "content": message})
             client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-            response = client.responses.create(model=MODEL, instructions=SYSTEM_INSTRUCTIONS, input=context, tools=self.tools.definitions)
+            instructions = SYSTEM_INSTRUCTIONS + ("\nRespond in natural Spanish while keeping tool names and canonical exercise identifiers unchanged." if self.language == "es" else "")
+            response = client.responses.create(model=MODEL, instructions=instructions, input=context, tools=self.tools.definitions)
             for _ in range(MAX_TOOL_ITERATIONS):
                 calls = [item for item in getattr(response, "output", []) if getattr(item, "type", "") == "function_call"]
                 if not calls:
@@ -489,7 +514,7 @@ class CoachService:
                     except (TypeError, ValueError, json.JSONDecodeError):
                         result = {"message": "The requested Coach tool could not be read safely."}
                     outputs.append({"type": "function_call_output", "call_id": call.call_id, "output": json.dumps(result)})
-                response = client.responses.create(model=MODEL, instructions=SYSTEM_INSTRUCTIONS, input=outputs, previous_response_id=getattr(response, "id", None), tools=self.tools.definitions)
+                response = client.responses.create(model=MODEL, instructions=instructions, input=outputs, previous_response_id=getattr(response, "id", None), tools=self.tools.definitions)
             self.last_error = "tool_iteration_limit"
             return "I could not complete that data lookup safely. Try a more specific question."
         except Exception as error:

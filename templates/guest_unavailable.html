@@ -1,0 +1,3 @@
+{% extends 'base.html' %}
+{% block title %}{{ t('Workout unavailable') }} · SYLRIX.FIT{% endblock %}
+{% block content %}<section class="guest-workout empty-state"><p class="eyebrow">SYLRIX.FIT</p><h1>{{ t('Workout unavailable') }}</h1><p>{{ t('This workout link is unavailable or has been revoked.') }}</p><a class="button" href="{{ url_for('home') }}">{{ t('Home') }}</a></section>{% endblock %}
