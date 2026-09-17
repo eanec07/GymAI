@@ -15,7 +15,7 @@ MUSCLE_REGIONS = {
 def normalize_muscle(name):
     """Normalize a bundled label or common synonym to its supported dataset label."""
     value = (name or "").lower().strip()
-    aliases = {"pectorals": "chest", "deltoids": "shoulders", "quadriceps": "quads", "gluteals": "glutes", "latissimus dorsi": "lats", "abs": "abdominals", "erectors": "lower back", "gastrocnemius": "calves"}
+    aliases = {"pectorals": "chest", "deltoids": "shoulders", "quadriceps": "quads", "gluteals": "glutes", "latissimus dorsi": "lats", "abs": "abdominals", "abdominal": "abdominals", "core": "abdominals", "erectors": "lower back", "gastrocnemius": "calves"}
     return aliases.get(value, value)
 
 def diagram_regions(muscles):

@@ -55,7 +55,27 @@ class MemberProgressTests(unittest.TestCase):
 
     def test_muscle_mapping_normalizes_common_library_terms(self):
         self.assertEqual(normalize_muscle("pectorals"), "chest")
+        self.assertEqual(normalize_muscle("core"), "abdominals")
         self.assertEqual(diagram_regions(("chest", "triceps")), ("chest", "triceps"))
+        expected = ("chest", "shoulders", "triceps", "biceps", "forearms", "abs", "quads", "hamstrings", "glutes", "calves", "lats", "middle_back", "lower_back", "traps")
+        self.assertEqual(diagram_regions(("chest", "shoulders", "triceps", "biceps", "forearms", "abdominals", "quads", "hamstrings", "glutes", "calves", "lats", "middle back", "lower back", "traps")), expected)
+
+    def test_progress_exposes_line_chart_data_and_optional_goal(self):
+        self.sign_in()
+        with sylrix.db_connection() as db:
+            db.execute("UPDATE members SET goal_weight=? WHERE id=?", (185, self.member_id))
+            db.execute("INSERT INTO body_weight_logs (member_id, weight, logged_on) VALUES (?, ?, ?)", (self.member_id, 200, "2026-09-01"))
+            db.execute("INSERT INTO body_weight_logs (member_id, weight, logged_on) VALUES (?, ?, ?)", (self.member_id, 198.5, "2026-09-08"))
+        response = self.client.get("/progress")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'id="weight-chart"', response.data)
+        self.assertIn(b'data-goal-weight="185.0"', response.data)
+        self.assertIn(b'"date": "2026-09-01"', response.data)
+        with open("static/weight-chart.js", encoding="utf-8") as chart:
+            renderer = chart.read()
+        self.assertIn("<polyline", renderer)
+        self.assertIn("chart-goal", renderer)
+        self.assertNotIn("<polygon", renderer)
 
 
 if __name__ == "__main__":

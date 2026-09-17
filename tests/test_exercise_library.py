@@ -27,6 +27,29 @@ class ExerciseLibraryTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Romanian", response.data)
 
+    def test_library_uses_accessible_sylrix_exercise_cards(self):
+        response = self.client.get("/exercises?q=bench")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'<section class="exercise-grid" aria-label="Exercise results">', response.data)
+        self.assertIn(b'exercise-result-card', response.data)
+        self.assertIn(b"Primary muscle", response.data)
+        self.assertIn(b"Equipment", response.data)
+        self.assertIn(b"Difficulty", response.data)
+        self.assertIn(b"View exercise", response.data)
+        self.assertNotIn(b"View movement", response.data)
+
+    def test_detail_renders_original_front_back_anatomy_with_muscle_states(self):
+        exercise = next(item for item in load_exercises() if "Bench Press" in item.name)
+        response = self.client.get(f"/exercises/{exercise_slug(exercise.name)}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Front muscular anatomy", response.data)
+        self.assertIn(b"Back muscular anatomy", response.data)
+        self.assertIn(b"body-base", response.data)
+        self.assertIn(b'class="region primary"', response.data)
+        self.assertIn(b'class="region secondary"', response.data)
+        self.assertIn(b"Primary", response.data)
+        self.assertIn(b"Secondary", response.data)
+
 
 if __name__ == "__main__":
     unittest.main()

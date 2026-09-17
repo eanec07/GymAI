@@ -1,12 +1,27 @@
-/* Small dependency-free SVG renderer for private body-weight history. */
+/* Dependency-free, line-only SVG renderer for private body-weight history. */
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".weight-chart").forEach((element) => {
     const points = JSON.parse(element.dataset.points || "[]");
     if (points.length < 2) return;
-    const width = 700, height = 220, pad = 28;
+
+    const width = 700, height = 260;
+    const padding = { top: 22, right: 24, bottom: 48, left: 54 };
+    const goal = Number(element.dataset.goalWeight);
     const values = points.map(point => Number(point.weight));
-    const min = Math.min(...values), max = Math.max(...values), range = max - min || 1;
-    const coords = values.map((value, index) => `${pad + index * ((width - pad * 2) / (values.length - 1))},${height - pad - ((value - min) / range) * (height - pad * 2)}`);
-    element.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Body-weight chart"><line x1="${pad}" y1="${height-pad}" x2="${width-pad}" y2="${height-pad}" class="chart-axis"/><polyline points="${coords.join(" ")}" class="chart-line"/>${coords.map(point => `<circle cx="${point.split(',')[0]}" cy="${point.split(',')[1]}" r="4" class="chart-dot"/>`).join("")}</svg><div class="chart-labels"><span>${points[0].date}</span><strong>${min.toFixed(1)}–${max.toFixed(1)} lb</strong><span>${points.at(-1).date}</span></div>`;
+    if (Number.isFinite(goal)) values.push(goal);
+    const rawMin = Math.min(...values), rawMax = Math.max(...values);
+    const spread = Math.max(rawMax - rawMin, 2);
+    const min = Math.floor((rawMin - spread * .15) * 2) / 2;
+    const max = Math.ceil((rawMax + spread * .15) * 2) / 2;
+    const plotWidth = width - padding.left - padding.right;
+    const plotHeight = height - padding.top - padding.bottom;
+    const x = index => padding.left + index * (plotWidth / (points.length - 1));
+    const y = value => padding.top + (max - value) * plotHeight / (max - min || 1);
+    const coords = points.map((point, index) => `${x(index).toFixed(1)},${y(Number(point.weight)).toFixed(1)}`);
+    const ticks = Array.from({ length: 4 }, (_, index) => min + (max - min) * index / 3);
+    const grid = ticks.map(tick => `<g><line x1="${padding.left}" y1="${y(tick)}" x2="${width-padding.right}" y2="${y(tick)}" class="chart-grid"/><text x="${padding.left-9}" y="${y(tick)+4}" text-anchor="end" class="chart-y-label">${tick.toFixed(1)}</text></g>`).join("");
+    const goalLine = Number.isFinite(goal) ? `<g class="chart-goal"><line x1="${padding.left}" y1="${y(goal)}" x2="${width-padding.right}" y2="${y(goal)}"/><text x="${width-padding.right}" y="${y(goal)-7}" text-anchor="end">Goal ${goal.toFixed(1)} lb</text></g>` : "";
+    const dots = coords.map((point, index) => `<circle cx="${point.split(",")[0]}" cy="${point.split(",")[1]}" r="4" class="chart-dot"><title>${points[index].date}: ${Number(points[index].weight).toFixed(1)} lb</title></circle>`).join("");
+    element.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Body-weight line graph from ${points[0].date} to ${points[points.length - 1].date}"><text x="${padding.left}" y="13" class="chart-title">Body weight (lb)</text>${grid}${goalLine}<line x1="${padding.left}" y1="${height-padding.bottom}" x2="${width-padding.right}" y2="${height-padding.bottom}" class="chart-axis"/><polyline points="${coords.join(" ")}" class="chart-line"/>${dots}<text x="${padding.left}" y="${height-17}" class="chart-x-label">${points[0].date}</text><text x="${width-padding.right}" y="${height-17}" text-anchor="end" class="chart-x-label">${points[points.length - 1].date}</text></svg>`;
   });
 });

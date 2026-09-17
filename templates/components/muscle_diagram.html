@@ -1,6 +1,40 @@
-{% set primary = diagram_regions(exercise.primary_muscles) %}{% set secondary = diagram_regions(exercise.secondary_muscles) %}
-<div class="anatomy-component" aria-label="Muscle anatomy map for {{ exercise.name }}">
-  <div><p class="eyebrow">Front</p><svg viewBox="0 0 160 330" role="img" aria-label="Front muscle diagram"><g class="body-outline"><circle cx="80" cy="25" r="18"/><path d="M58 52 L40 88 L53 145 L58 245 L45 315 M102 52 L120 88 L107 145 L102 245 L115 315 M58 52 Q80 66 102 52 L107 145 Q80 163 53 145 Z"/></g><path class="region chest {% if 'chest' in primary %}primary{% elif 'chest' in secondary %}secondary{% endif %}" d="M57 72 Q80 62 103 72 L100 101 Q80 92 60 101Z"/><path class="region shoulders {% if 'shoulders' in primary %}primary{% elif 'shoulders' in secondary %}secondary{% endif %}" d="M49 66 L61 66 L61 96 L45 88Z M99 66 L111 66 L115 88 L99 96Z"/><path class="region biceps {% if 'biceps' in primary %}primary{% elif 'biceps' in secondary %}secondary{% endif %}" d="M45 92 L59 99 L54 133 L40 130Z M115 92 L101 99 L106 133 L120 130Z"/><path class="region forearms {% if 'forearms' in primary %}primary{% elif 'forearms' in secondary %}secondary{% endif %}" d="M40 132 L54 134 L49 169 L35 164Z M120 132 L106 134 L111 169 L125 164Z"/><path class="region abs {% if 'abs' in primary %}primary{% elif 'abs' in secondary %}secondary{% endif %}" d="M67 104 L93 104 L94 159 L66 159Z"/><path class="region obliques {% if 'obliques' in primary %}primary{% elif 'obliques' in secondary %}secondary{% endif %}" d="M58 111 L67 106 L67 157 L57 150Z M102 111 L93 106 L93 157 L103 150Z"/><path class="region quads {% if 'quads' in primary %}primary{% elif 'quads' in secondary %}secondary{% endif %}" d="M58 164 L78 164 L75 242 L56 242Z M82 164 L102 164 L104 242 L85 242Z"/><path class="region calves {% if 'calves' in primary %}primary{% elif 'calves' in secondary %}secondary{% endif %}" d="M55 247 L75 247 L70 300 L51 300Z M85 247 L105 247 L109 300 L90 300Z"/></svg></div>
-  <div><p class="eyebrow">Back</p><svg viewBox="0 0 160 330" role="img" aria-label="Back muscle diagram"><g class="body-outline"><circle cx="80" cy="25" r="18"/><path d="M58 52 L40 88 L53 145 L58 245 L45 315 M102 52 L120 88 L107 145 L102 245 L115 315 M58 52 Q80 66 102 52 L107 145 Q80 163 53 145 Z"/></g><path class="region traps {% if 'traps' in primary %}primary{% elif 'traps' in secondary %}secondary{% endif %}" d="M61 57 L99 57 L96 88 L64 88Z"/><path class="region lats {% if 'lats' in primary %}primary{% elif 'lats' in secondary %}secondary{% endif %}" d="M57 87 L79 93 L79 139 L55 143Z M103 87 L81 93 L81 139 L105 143Z"/><path class="region middle_back {% if 'middle_back' in primary %}primary{% elif 'middle_back' in secondary %}secondary{% endif %}" d="M70 89 L90 89 L93 143 L67 143Z"/><path class="region lower_back {% if 'lower_back' in primary %}primary{% elif 'lower_back' in secondary %}secondary{% endif %}" d="M68 143 L92 143 L96 163 L64 163Z"/><path class="region triceps {% if 'triceps' in primary %}primary{% elif 'triceps' in secondary %}secondary{% endif %}" d="M45 92 L59 99 L54 133 L40 130Z M115 92 L101 99 L106 133 L120 130Z"/><path class="region forearms {% if 'forearms' in primary %}primary{% elif 'forearms' in secondary %}secondary{% endif %}" d="M40 132 L54 134 L49 169 L35 164Z M120 132 L106 134 L111 169 L125 164Z"/><path class="region glutes {% if 'glutes' in primary %}primary{% elif 'glutes' in secondary %}secondary{% endif %}" d="M58 164 Q69 158 80 169 Q91 158 102 164 L103 192 L57 192Z"/><path class="region hamstrings {% if 'hamstrings' in primary %}primary{% elif 'hamstrings' in secondary %}secondary{% endif %}" d="M58 194 L78 194 L75 242 L56 242Z M82 194 L102 194 L104 242 L85 242Z"/><path class="region calves {% if 'calves' in primary %}primary{% elif 'calves' in secondary %}secondary{% endif %}" d="M55 247 L75 247 L70 300 L51 300Z M85 247 L105 247 L109 300 L90 300Z"/></svg></div>
-  <p class="anatomy-key"><span class="primary-key"></span> Primary <span class="secondary-key"></span> Supporting</p>
-</div>
+{% set primary = diagram_regions(exercise.primary_muscles) %}
+{% set secondary = diagram_regions(exercise.secondary_muscles) %}
+{% macro tone(region) %}{% if region in primary %}primary{% elif region in secondary %}secondary{% endif %}{% endmacro %}
+<figure class="anatomy-component" aria-labelledby="anatomy-caption">
+  <div class="anatomy-view">
+    <p class="eyebrow">Front</p>
+    <svg viewBox="0 0 180 390" role="img" aria-label="Front muscular anatomy diagram">
+      <title>Front muscular anatomy</title>
+      <g class="body-base"><ellipse cx="90" cy="34" rx="22" ry="27"/><path d="M72 59 Q90 68 108 59 L124 70 L142 115 L126 132 L119 194 L113 256 L126 354 L108 354 L96 265 L90 265 L84 354 L66 354 L54 256 L61 194 L54 132 L38 115 L56 70Z"/></g>
+      <g class="region {{ tone('shoulders') }}"><path d="M55 72 Q42 78 39 105 L58 119 L70 96 L68 77Z"/><path d="M125 72 Q138 78 141 105 L122 119 L110 96 L112 77Z"/></g>
+      <g class="region {{ tone('chest') }}"><path d="M68 82 Q79 75 89 84 L88 116 Q73 113 61 102Z"/><path d="M112 82 Q101 75 91 84 L92 116 Q107 113 119 102Z"/></g>
+      <g class="region {{ tone('biceps') }}"><path d="M44 118 Q54 112 62 122 L58 157 Q48 165 40 154Z"/><path d="M136 118 Q126 112 118 122 L122 157 Q132 165 140 154Z"/></g>
+      <g class="region {{ tone('forearms') }}"><path d="M40 157 Q49 160 57 157 L52 194 Q44 205 35 193Z"/><path d="M140 157 Q131 160 123 157 L128 194 Q136 205 145 193Z"/></g>
+      <g class="region {{ tone('abs') }}"><path d="M75 119 L89 119 L88 142 L74 142Z"/><path d="M91 119 L105 119 L106 142 L92 142Z"/><path d="M74 145 L88 145 L88 169 L74 169Z"/><path d="M92 145 L106 145 L106 169 L92 169Z"/><path d="M74 172 L88 172 L89 194 L75 194Z"/><path d="M92 172 L106 172 L105 194 L91 194Z"/></g>
+      <g class="region {{ tone('obliques') }}"><path d="M63 121 L72 124 L72 190 L60 184Z"/><path d="M117 121 L108 124 L108 190 L120 184Z"/></g>
+      <g class="region {{ tone('quads') }}"><path d="M62 198 Q75 193 87 199 L84 264 L61 256Z"/><path d="M93 199 Q105 193 118 198 L119 256 L96 264Z"/><path d="M85 199 L92 199 L94 264 L83 264Z"/></g>
+      <g class="region {{ tone('calves') }}"><path d="M62 270 Q73 264 83 271 L80 337 L62 337 Q55 310 62 270Z"/><path d="M97 271 Q107 264 118 270 Q125 310 118 337 L100 337Z"/></g>
+      <g class="muscle-detail"><path d="M90 61 L90 194"/><path d="M75 128 L88 128 M92 128 L105 128 M74 156 L88 156 M92 156 L106 156"/><path d="M63 213 L83 244 M117 213 L97 244"/></g>
+    </svg>
+  </div>
+  <div class="anatomy-view">
+    <p class="eyebrow">Back</p>
+    <svg viewBox="0 0 180 390" role="img" aria-label="Back muscular anatomy diagram">
+      <title>Back muscular anatomy</title>
+      <g class="body-base"><ellipse cx="90" cy="34" rx="22" ry="27"/><path d="M72 59 Q90 68 108 59 L124 70 L142 115 L126 132 L119 194 L113 256 L126 354 L108 354 L96 265 L90 265 L84 354 L66 354 L54 256 L61 194 L54 132 L38 115 L56 70Z"/></g>
+      <g class="region {{ tone('traps') }}"><path d="M70 64 L110 64 L118 95 L90 111 L62 95Z"/></g>
+      <g class="region {{ tone('shoulders') }}"><path d="M55 72 Q42 78 39 105 L58 119 L70 96 L68 77Z"/><path d="M125 72 Q138 78 141 105 L122 119 L110 96 L112 77Z"/></g>
+      <g class="region {{ tone('triceps') }}"><path d="M44 118 Q54 112 62 122 L58 157 Q48 165 40 154Z"/><path d="M136 118 Q126 112 118 122 L122 157 Q132 165 140 154Z"/></g>
+      <g class="region {{ tone('forearms') }}"><path d="M40 157 Q49 160 57 157 L52 194 Q44 205 35 193Z"/><path d="M140 157 Q131 160 123 157 L128 194 Q136 205 145 193Z"/></g>
+      <g class="region {{ tone('lats') }}"><path d="M62 101 L87 112 L83 177 L57 184 L60 133Z"/><path d="M118 101 L93 112 L97 177 L123 184 L120 133Z"/></g>
+      <g class="region {{ tone('middle_back') }}"><path d="M80 108 L100 108 L108 170 L90 184 L72 170Z"/></g>
+      <g class="region {{ tone('lower_back') }}"><path d="M72 174 L108 174 L112 198 L90 209 L68 198Z"/></g>
+      <g class="region {{ tone('glutes') }}"><path d="M61 204 Q77 195 90 211 Q103 195 119 204 L119 238 Q102 246 90 235 Q78 246 61 238Z"/></g>
+      <g class="region {{ tone('hamstrings') }}"><path d="M62 241 L86 239 L84 264 L61 256Z"/><path d="M94 239 L118 241 L119 256 L96 264Z"/></g>
+      <g class="region {{ tone('calves') }}"><path d="M62 270 Q73 264 83 271 L80 337 L62 337 Q55 310 62 270Z"/><path d="M97 271 Q107 264 118 270 Q125 310 118 337 L100 337Z"/></g>
+      <g class="muscle-detail"><path d="M90 65 L90 210"/><path d="M64 119 L90 142 L116 119"/><path d="M70 151 L90 168 L110 151"/><path d="M62 248 L83 257 M118 248 L97 257"/></g>
+    </svg>
+  </div>
+  <figcaption id="anatomy-caption" class="anatomy-key"><span class="primary-key"></span> Primary <span class="secondary-key"></span> Secondary</figcaption>
+</figure>
