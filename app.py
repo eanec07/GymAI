@@ -79,7 +79,7 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 is_production = os.environ.get("SYLRIX_ENV") == "production"
 csrf_enabled = os.environ.get("SYLRIX_CSRF_ENABLED", "1" if is_production else "0") == "1"
 app.config["BETA_MODE"] = os.environ.get("SYLRIX_BETA_MODE") == "1"
-app.config["ASSET_VERSION"] = os.environ.get("SYLRIX_ASSET_VERSION", "20260918")
+app.config["ASSET_VERSION"] = os.environ.get("SYLRIX_ASSET_VERSION", "20260919")
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SYLRIX_COOKIE_SECURE", "1" if is_production else "0") == "1"
 
 if is_production and app.config["SECRET_KEY"] == "change-this-before-deploying":
@@ -366,6 +366,12 @@ def web_app_manifest():
     response = send_from_directory(app.static_folder, "manifest.webmanifest", mimetype="application/manifest+json")
     response.headers["Cache-Control"] = "no-cache"
     return response
+
+
+@app.route("/favicon.ico")
+def favicon():
+    """Serve the approved PNG favicon at the conventional browser path."""
+    return send_from_directory(app.static_folder, "branding/favicon.png", mimetype="image/png")
 
 
 @app.route("/service-worker.js")

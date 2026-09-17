@@ -3,12 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#080909">
+  <meta name="theme-color" content="#0B0B0B">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>{% block title %}SYLRIX.FIT{% endblock %}</title>
   <link rel="manifest" href="{{ url_for('web_app_manifest') }}">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='branding/favicon.png', v=config.ASSET_VERSION) }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='branding/apple-touch-icon.png', v=config.ASSET_VERSION) }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">

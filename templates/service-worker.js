@@ -6,7 +6,13 @@ const PUBLIC_SHELL = [
   '/static/training-cards.css',
   '/static/app-screens.css',
   '/static/sylrix-fit.css',
-  '/static/pwa.js'
+  '/static/pwa.js',
+  '/static/branding/sylrix-icon.png',
+  '/static/branding/sylrix-wordmark.png',
+  '/static/branding/favicon.png',
+  '/static/branding/apple-touch-icon.png',
+  '/static/branding/sylrix-icon-192.png',
+  '/static/branding/sylrix-icon-512.png'
 ];
 
 self.addEventListener('install', event => {

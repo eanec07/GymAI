@@ -58,6 +58,31 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertIn(b"Connection required", offline.data)
         offline.close()
 
+    def test_approved_brand_assets_are_served_and_referenced(self):
+        expected_assets = {
+            "/favicon.ico": "",
+            "/static/branding/sylrix-icon.png": "",
+            "/static/branding/sylrix-wordmark.png": "",
+            "/static/branding/favicon.png": "",
+            "/static/branding/sylrix-icon-192.png": "192x192",
+            "/static/branding/sylrix-icon-512.png": "512x512",
+            "/static/branding/apple-touch-icon.png": "",
+        }
+        for path in expected_assets:
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 200, path)
+            response.close()
+        page = self.client.get("/")
+        self.assertIn(b"branding/sylrix-icon.png", page.data)
+        self.assertIn(b"branding/sylrix-wordmark.png", page.data)
+        self.assertIn(b"branding/apple-touch-icon.png", page.data)
+        manifest_response = self.client.get("/manifest.webmanifest")
+        manifest = manifest_response.get_json()
+        manifest_response.close()
+        manifest_icons = {icon["src"]: icon["sizes"] for icon in manifest["icons"]}
+        self.assertEqual(manifest_icons["/static/branding/sylrix-icon-192.png"], "192x192")
+        self.assertEqual(manifest_icons["/static/branding/sylrix-icon-512.png"], "512x512")
+
     def test_csrf_rejects_missing_token_and_accepts_rendered_token(self):
         sylrix.csrf_enabled = True
         self.assertEqual(self.client.post("/register", data={}).status_code, 403)

@@ -1,4 +1,5 @@
-{# Text fallback until approved assets are supplied in static/branding/sylrix-wordmark.svg and sylrix-icon.svg. #}
 <span class="sylrix-logo {% if compact %}sylrix-logo-compact{% endif %}" aria-label="SYLRIX.FIT">
-  <span class="sylrix-wordmark">SYLRIX<span>.FIT</span></span>
+  <img class="sylrix-emblem-image" src="{{ url_for('static', filename='branding/sylrix-icon.png', v=config.ASSET_VERSION) }}" alt="">
+  <img class="sylrix-wordmark-image" src="{{ url_for('static', filename='branding/sylrix-wordmark.png', v=config.ASSET_VERSION) }}" alt="">
+  <span class="sylrix-product-suffix">.FIT</span>
 </span>
