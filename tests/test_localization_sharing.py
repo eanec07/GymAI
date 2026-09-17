@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import app as sylrix
 from services.ai_coach import CoachService
@@ -63,6 +64,7 @@ class LocalizationAndSharingTests(unittest.TestCase):
         guest = sylrix.app.test_client()
         english = guest.get(f"/w/{token}")
         self.assertEqual(english.status_code, 200)
+        self.assertEqual(english.headers["Cache-Control"], "no-store")
         self.assertIn(b"Bench Press", english.data)
         self.assertNotIn(b"Private Member", english.data)
         self.assertNotIn(b"private@example.test", english.data)
@@ -77,6 +79,23 @@ class LocalizationAndSharingTests(unittest.TestCase):
         self.assertEqual(self.client_b.post(f"/workout/session/{self.session_id}/share", data={"action": "revoke"}).status_code, 404)
         self.assertEqual(self.client_a.post(f"/workout/session/{self.session_id}/share", data={"action": "revoke"}).status_code, 302)
         self.assertEqual(guest.get(f"/w/{token}").status_code, 404)
+
+    def test_share_mutations_require_csrf_and_qr_encodes_only_public_url(self):
+        sylrix.csrf_enabled = True
+        self.assertEqual(self.client_a.post(f"/workout/session/{self.session_id}/share", data={"action": "create"}).status_code, 403)
+        self.client_a.get(f"/workout/session/{self.session_id}/share")
+        with self.client_a.session_transaction() as session:
+            token = session["csrf_token"]
+        self.assertEqual(self.client_a.post(f"/workout/session/{self.session_id}/share", data={"action": "create", "csrf_token": token}).status_code, 302)
+        with sylrix.db_connection() as db:
+            share_token = db.execute("SELECT share_token FROM workout_shares WHERE workout_session_id=?", (self.session_id,)).fetchone()["share_token"]
+        with patch("qrcode.make") as make:
+            image = make.return_value
+            image.save.side_effect = lambda output, format: output.write(b"png")
+            response = self.client_a.get(f"/w/{share_token}/qr.png")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response.headers["Cache-Control"])
+        self.assertEqual(make.call_args.args, (f"http://localhost/w/{share_token}",))
 
     def test_invalid_share_is_unavailable(self):
         response = sylrix.app.test_client().get("/w/not-a-valid-share-token")
