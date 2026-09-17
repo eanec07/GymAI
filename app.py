@@ -613,7 +613,7 @@ def active_workout(day_number):
     completed_sets = sum(item["completed"] for item in sets if not item["is_warmup"])
     working_sets = sum(not item["is_warmup"] for item in sets)
     completed_exercises = len({item["exercise_order"] for item in sets if item["completed"] and not item["is_warmup"]})
-    return render_template("active_workout.html", member=member, workout=workout, workout_session=active, sets_by_exercise=by_exercise, previous_by_exercise=previous_by_exercise, overrides=overrides, completed_sets=completed_sets, working_sets=working_sets, completed_exercises=completed_exercises, readiness=readiness, readiness_recommendation=training_recommendation(readiness, recent_completed, bool(has_progression)))
+    return render_template("active_workout.html", member=member, workout=workout, workout_session=active, sets_by_exercise=by_exercise, previous_by_exercise=previous_by_exercise, overrides=overrides, completed_sets=completed_sets, working_sets=working_sets, completed_exercises=completed_exercises, readiness=readiness, readiness_recommendation=training_recommendation(readiness, recent_completed, bool(has_progression)), exercise_slug=exercise_slug)
 
 
 @app.route("/workout/session/<int:session_id>/readiness-adjustment", methods=["POST"])

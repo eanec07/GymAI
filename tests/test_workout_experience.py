@@ -42,5 +42,15 @@ class WorkoutExperienceTests(unittest.TestCase):
         self.assertEqual(self.client.post(f'/workout/session/{session_id}/finish',data={'confirm':'finish'}).status_code,404)
         self.assertEqual(self.client.post(f'/workout/session/{session_id}/exercise/1/replace',data={'exercise':'Bench'}).status_code,404)
 
+    def test_active_workout_uses_canonical_exercise_detail_slug(self):
+        self.client.get('/workout/1')
+        with sylrix.db_connection() as db:
+            session_id = db.execute("SELECT id FROM workout_sessions WHERE member_id=? AND status='active'", (self.member,)).fetchone()['id']
+            db.execute("UPDATE session_exercises SET exercise_name='Bench Press - Powerlifting' WHERE session_id=? AND exercise_order=1", (session_id,))
+            db.execute("UPDATE workout_sets SET exercise_name='Bench Press - Powerlifting' WHERE session_id=? AND exercise_order=1", (session_id,))
+        page = self.client.get('/workout/1')
+        self.assertIn(b'/exercises/bench-press-powerlifting', page.data)
+        self.assertEqual(self.client.get('/exercises/bench-press-powerlifting').status_code, 200)
+
 
 if __name__=='__main__': unittest.main()
