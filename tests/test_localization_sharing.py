@@ -210,6 +210,17 @@ class LocalizationAndSharingTests(unittest.TestCase):
         self.assertIn("Entrena según lo planeado".encode(), dashboard.data)
         self.assertIn("Press de banca".encode(), dashboard.data)
 
+    def test_spanish_coach_and_readiness_do_not_fall_back_to_known_english_controls(self):
+        self.client_a.post("/language", data={"language": "es", "return_to": "/app/coach"})
+        coach = self.client_a.get("/app/coach")
+        self.assertIn("¿En qué puedo ayudarte?".encode(), coach.data)
+        self.assertIn("Inteligencia local activa".encode(), coach.data)
+        self.assertNotIn(b"What can I help with?", coach.data)
+        readiness = self.client_a.get("/app/readiness")
+        self.assertIn("Registro diario".encode(), readiness.data)
+        self.assertIn("Horas de sue".encode(), readiness.data)
+        self.assertNotIn(b"Sleep hours", readiness.data)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,10 @@
 
   const installButton = document.querySelector('#pwa-install');
   let installPrompt;
-  const dismissed = () => localStorage.getItem('sylrix-install-dismissed') === '1';
+  const dismissed = () => {
+    try { return localStorage.getItem('sylrix-install-dismissed') === '1'; } catch (_) { return false; }
+  };
+  const dismiss = () => { try { localStorage.setItem('sylrix-install-dismissed', '1'); } catch (_) {} };
 
   window.addEventListener('beforeinstallprompt', event => {
     event.preventDefault();
@@ -17,12 +20,12 @@
     await installPrompt.userChoice;
     installPrompt = undefined;
     installButton.hidden = true;
-    localStorage.setItem('sylrix-install-dismissed', '1');
+    dismiss();
   });
 
   window.addEventListener('appinstalled', () => {
     installButton && (installButton.hidden = true);
-    localStorage.setItem('sylrix-install-dismissed', '1');
+    dismiss();
   });
 
   window.addEventListener('load', async () => {

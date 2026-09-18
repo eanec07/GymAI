@@ -61,3 +61,11 @@ body:not(.marketing-page) .badge{background:#321d1e;color:#f4c3c4}body:not(.mark
   .primary-nav,.more-menu{grid-template-columns:1fr!important}
   .nav-links a.active{background:#35191b!important;box-shadow:inset 3px 0 var(--sylrix-red)!important}
 }
+
+/* Segmented anatomy remains legible without relying on a dark silhouette. */
+.anatomy-component .body-base ellipse,.anatomy-component .body-base path{fill:#242931!important;stroke:#9AA0A8!important}
+.anatomy-component .region{fill:#69717B!important;stroke:#D2D7DB!important}
+.anatomy-component .region.primary{fill:#E53935!important;stroke:#FFAAA7!important}
+.anatomy-component .region.secondary{fill:#B85A45!important;stroke:#F09A77!important}
+.anatomy-component .muscle-detail path{stroke:#E0E4E7!important}
+.secondary-key{background:#B85A45!important}

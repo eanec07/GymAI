@@ -3,9 +3,9 @@
 {% macro tone(region) %}{% if region in primary %}primary{% elif region in secondary %}secondary{% endif %}{% endmacro %}
 <figure class="anatomy-component" aria-labelledby="anatomy-caption">
   <div class="anatomy-view">
-    <p class="eyebrow">Front</p>
-    <svg viewBox="0 0 180 390" role="img" aria-label="Front muscular anatomy diagram">
-      <title>Front muscular anatomy</title>
+    <p class="eyebrow">{{ t('Front') }}</p>
+    <svg viewBox="0 0 180 390" role="img" aria-label="{{ t('Front muscular anatomy diagram') }}">
+      <title>{{ t('Front muscular anatomy') }}</title>
       <g class="body-base"><ellipse cx="90" cy="34" rx="22" ry="27"/><path d="M72 59 Q90 68 108 59 L124 70 L142 115 L126 132 L119 194 L113 256 L126 354 L108 354 L96 265 L90 265 L84 354 L66 354 L54 256 L61 194 L54 132 L38 115 L56 70Z"/></g>
       <g class="region {{ tone('shoulders') }}"><path d="M55 72 Q42 78 39 105 L58 119 L70 96 L68 77Z"/><path d="M125 72 Q138 78 141 105 L122 119 L110 96 L112 77Z"/></g>
       <g class="region {{ tone('chest') }}"><path d="M68 82 Q79 75 89 84 L88 116 Q73 113 61 102Z"/><path d="M112 82 Q101 75 91 84 L92 116 Q107 113 119 102Z"/></g>
@@ -19,9 +19,9 @@
     </svg>
   </div>
   <div class="anatomy-view">
-    <p class="eyebrow">Back</p>
-    <svg viewBox="0 0 180 390" role="img" aria-label="Back muscular anatomy diagram">
-      <title>Back muscular anatomy</title>
+    <p class="eyebrow">{{ t('Back') }}</p>
+    <svg viewBox="0 0 180 390" role="img" aria-label="{{ t('Back muscular anatomy diagram') }}">
+      <title>{{ t('Back muscular anatomy') }}</title>
       <g class="body-base"><ellipse cx="90" cy="34" rx="22" ry="27"/><path d="M72 59 Q90 68 108 59 L124 70 L142 115 L126 132 L119 194 L113 256 L126 354 L108 354 L96 265 L90 265 L84 354 L66 354 L54 256 L61 194 L54 132 L38 115 L56 70Z"/></g>
       <g class="region {{ tone('traps') }}"><path d="M70 64 L110 64 L118 95 L90 111 L62 95Z"/></g>
       <g class="region {{ tone('shoulders') }}"><path d="M55 72 Q42 78 39 105 L58 119 L70 96 L68 77Z"/><path d="M125 72 Q138 78 141 105 L122 119 L110 96 L112 77Z"/></g>
@@ -36,5 +36,5 @@
       <g class="muscle-detail"><path d="M90 65 L90 210"/><path d="M64 119 L90 142 L116 119"/><path d="M70 151 L90 168 L110 151"/><path d="M62 248 L83 257 M118 248 L97 257"/></g>
     </svg>
   </div>
-  <figcaption id="anatomy-caption" class="anatomy-key"><span class="primary-key"></span> Primary <span class="secondary-key"></span> Secondary</figcaption>
+  <figcaption id="anatomy-caption" class="anatomy-key"><span class="primary-key"></span> {{ t('Primary') }} <span class="secondary-key"></span> {{ t('Secondary') }}</figcaption>
 </figure>

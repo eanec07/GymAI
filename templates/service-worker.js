@@ -33,6 +33,15 @@ self.addEventListener('fetch', event => {
     event.respondWith(fetch(request).catch(() => caches.match('/static/offline.html')));
     return;
   }
-  if (!new URL(request.url).pathname.startsWith('/static/')) return;
-  event.respondWith(caches.match(request, {ignoreSearch: true}).then(cached => cached || fetch(request)));
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith('/static/')) return;
+  // Versioned CSS and JavaScript must be refreshed while a PWA is installed.
+  // The earlier ignoreSearch cache lookup could return an older asset even
+  // after the HTML pointed at a newer ?v= URL.
+  event.respondWith(fetch(request).then(response => {
+    if (!response || !response.ok) return response;
+    const copy = response.clone();
+    caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+    return response;
+  }).catch(() => caches.match(request).then(cached => cached || caches.match(url.pathname))));
 });

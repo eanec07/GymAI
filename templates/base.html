@@ -25,7 +25,7 @@
   <header class="site-header">
     <nav class="site-nav" aria-label="Main navigation">
       <a class="product-brand" href="{{ url_for('home') }}" aria-label="SYLRIX.FIT home">{% include 'components/logo.html' %}<small>Intelligent training system</small></a>
-      <button class="nav-toggle" type="button" aria-controls="site-navigation" aria-expanded="false">{{ t('Menu') }}</button>
+      <button class="nav-toggle" id="mobile-menu-toggle" type="button" aria-controls="site-navigation" aria-expanded="false">{{ t('Menu') }}</button>
       <div class="nav-links" id="site-navigation">
         <div class="mobile-menu-brand" aria-hidden="true">{% include 'components/logo.html' %}</div>
         {% if session.get('account_id') %}
@@ -50,8 +50,11 @@
   {% block shell %}<main>{% with messages = get_flashed_messages() %}{% if messages %}<div class="flash-stack">{% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}{% block content %}{% endblock %}</main>{% endblock %}
   <footer class="site-footer"><div><strong>SYLRIX.FIT</strong><span>Built around the work you actually log.</span></div><span><a href="{{ url_for('privacy') }}">Privacy</a> · <a href="{{ url_for('terms') }}">Terms</a></span></footer>
   <script>
-    localStorage.setItem('sylrix-language', '{{ language }}');
-    const navToggle = document.querySelector('.nav-toggle');
+    (() => {
+    // Storage can be blocked in private browsing or an installed web view. It
+    // must never prevent the navigation listener from being registered.
+    try { localStorage.setItem('sylrix-language', '{{ language }}'); } catch (_) {}
+    const navToggle = document.querySelector('#mobile-menu-toggle');
     const siteNavigation = document.querySelector('#site-navigation');
     const siteNav = document.querySelector('.site-nav');
     const closeNavigation = () => {
@@ -60,6 +63,7 @@
       navToggle?.setAttribute('aria-expanded', 'false');
     };
     navToggle?.addEventListener('click', () => {
+      if (!siteNavigation) return;
       const open = siteNavigation.classList.toggle('open');
       document.body.classList.toggle('nav-open', open);
       navToggle.setAttribute('aria-expanded', String(open));
@@ -76,6 +80,7 @@
         input.type = 'hidden'; input.name = 'csrf_token'; input.value = '{{ csrf_token }}'; form.append(input);
       }
     });
+    })();
   </script>
   <script src="{{ url_for('static', filename='pwa.js', v=config.ASSET_VERSION) }}" defer></script>
 </body>

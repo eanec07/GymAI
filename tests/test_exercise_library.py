@@ -50,6 +50,24 @@ class ExerciseLibraryTests(unittest.TestCase):
         self.assertIn(b"Primary", response.data)
         self.assertIn(b"Secondary", response.data)
 
+    def test_anatomy_uses_distinct_project_regions_for_major_lifts(self):
+        expected_regions = {
+            "Barbell Bench Press - Medium Grip": (b"tone('chest')", b"tone('triceps')"),
+            "Barbell Full Squat": (b"tone('quads')", b"tone('glutes')"),
+            "Barbell Deadlift": (b"tone('hamstrings')", b"tone('lower_back')"),
+            "Band Assisted Pull-Up": (b"tone('lats')", b"tone('biceps')"),
+        }
+        with open("templates/components/muscle_diagram.html", encoding="utf-8") as source:
+            diagram = source.read().encode()
+        for name, regions in expected_regions.items():
+            exercise = next(item for item in load_exercises() if item.name == name)
+            response = self.client.get(f"/exercises/{exercise_slug(exercise.name)}")
+            self.assertEqual(response.status_code, 200, name)
+            self.assertIn(regions[0], diagram, name)
+            self.assertIn(regions[1], diagram, name)
+            self.assertIn(b"class=\"region", response.data, name)
+            self.assertIn(b"region primary", response.data, name)
+
 
 if __name__ == "__main__":
     unittest.main()
