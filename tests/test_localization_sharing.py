@@ -107,5 +107,28 @@ class LocalizationAndSharingTests(unittest.TestCase):
         self.assertTrue(reply.startswith(("Tu plan actual", "Puedo ayudarte", "Completa el registro")))
 
 
+    def test_spanish_library_detail_dashboard_and_share_controls_keep_canonical_data(self):
+        self.client_a.post("/language", data={"language": "es", "return_to": "/app"})
+        dashboard = self.client_a.get("/app")
+        self.assertIn(b"Hoy", dashboard.data)
+        library = self.client_a.get("/exercises?q=bench")
+        self.assertIn("Biblioteca de ejercicios".encode(), library.data)
+        self.assertIn("Press de banca con barra".encode(), library.data)
+        detail = self.client_a.get("/exercises/barbell-bench-press-medium-grip")
+        self.assertIn("Detalles del movimiento".encode(), detail.data)
+        self.assertIn("Túmbate en un banco plano".encode(), detail.data)
+        token = self.create_share()
+        share = self.client_a.get(f"/workout/session/{self.session_id}/share")
+        self.assertIn("Compartir entrenamiento".encode(), share.data)
+        self.assertIn("Mostrar código QR".encode(), share.data)
+        guest = sylrix.app.test_client()
+        guest.post("/language", data={"language": "es", "return_to": f"/w/{token}"})
+        guest_page = guest.get(f"/w/{token}")
+        self.assertIn("Press de banca".encode(), guest_page.data)
+        self.assertNotIn(b"Private Member", guest_page.data)
+        with sylrix.db_connection() as db:
+            self.assertEqual(db.execute("SELECT exercise_name FROM workout_sets WHERE id=?", (self.set_id,)).fetchone()["exercise_name"], "Bench Press")
+
+
 if __name__ == "__main__":
     unittest.main()

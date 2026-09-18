@@ -2,9 +2,9 @@
 {% block content %}
 <section class="app-screen coach-shell">
   {% include 'components/coach_identity.html' %}
-  <h1>Practical guidance for your training.</h1>
-  <p class="screen-lead">Clear answers based on your plan, workouts, nutrition targets, and steps.</p>
-  {% if local_mode %}<div class="coach-notice"><strong>Free local Coach mode is on.</strong><span>No OpenAI requests or API credits are being used.</span></div>{% endif %}
+  <h1>{{ t('Practical guidance for your training.') }}</h1>
+  <p class="screen-lead">{{ t('Clear answers based on your plan, workouts, nutrition targets, and steps.') }}</p>
+  {% if local_mode %}<div class="coach-notice"><strong>{{ t('Free local Coach mode is on.') }}</strong><span>{{ t('No OpenAI requests or API credits are being used.') }}</span></div>{% endif %}
   <div class="coach-thread" id="coach-thread" aria-live="polite">
     {% for item in messages %}
     <article class="coach-message {{ item.role }}"><strong>{{ 'You' if item.role == 'user' else 'SYLRIX Coach' }}</strong><p>{{ item.message }}</p><small>{{ item.created_at }}</small></article>
@@ -12,7 +12,7 @@
     <div class="coach-empty"><p class="eyebrow">Start here</p><h2>What can I help with?</h2><p>Ask about a lift, your weight trend, recent training, nutrition targets, steps, recovery, or substitutions.</p><div class="coach-prompts">{% for prompt in ['How has my weight changed?','What did I bench last time?','What should I train today?','Show my recent progress.','Give me a dumbbell chest exercise.'] %}<button class="prompt-button" type="button" data-prompt="{{ prompt }}">{{ prompt }}</button>{% endfor %}</div></div>
     {% endfor %}
   </div>
-  <form method="post" class="coach-form" id="coach-form"><label class="sr-only" for="coach-message">Your message</label><textarea id="coach-message" name="message" required placeholder="Ask a question…"></textarea><button type="submit">Send</button></form>
+  <form method="post" class="coach-form" id="coach-form"><label class="sr-only" for="coach-message">{{ t('Your message') }}</label><textarea id="coach-message" name="message" required placeholder="{{ t('Ask a question…') }}"></textarea><button type="submit">{{ t('Send') }}</button></form>
 </section>
-<script>const thread=document.querySelector('#coach-thread'),form=document.querySelector('#coach-form'),input=document.querySelector('#coach-message');thread.scrollTop=thread.scrollHeight;document.querySelectorAll('.prompt-button').forEach(button=>button.onclick=()=>{input.value=button.dataset.prompt;input.focus()});input?.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();form.requestSubmit()}});form?.addEventListener('submit',()=>{const button=form.querySelector('button');button.disabled=true;button.textContent='Thinking…'});</script>
+<script>const thread=document.querySelector('#coach-thread'),form=document.querySelector('#coach-form'),input=document.querySelector('#coach-message');thread.scrollTop=thread.scrollHeight;document.querySelectorAll('.prompt-button').forEach(button=>button.onclick=()=>{input.value=button.dataset.prompt;input.focus()});input?.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();form.requestSubmit()}});form?.addEventListener('submit',()=>{const button=form.querySelector('button');button.disabled=true;button.textContent='{{ t('Thinking…') }}'});</script>
 {% endblock %}

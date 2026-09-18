@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
-from flask import Flask, abort, flash, redirect, render_template, request, send_file, send_from_directory, session, url_for
+from flask import Flask, abort, flash as flask_flash, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from PIL import Image, UnidentifiedImageError
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -29,7 +29,7 @@ from training.progression import get_progression_recommendation
 from training.prs import detect_prs
 from training.adaptive import apply_progression_states, progression_state, progression_states, recommendation_for_session, save_progression_state
 from muscles import diagram_regions, display_muscle
-from services.i18n import display_exercise, display_muscle_localized, normalize_language, translate
+from services.i18n import display_exercise, display_instruction, display_muscle_localized, normalize_language, translate
 
 TRAINING_CATEGORIES = {
     "bodybuilding": ("Bodybuilding", "Build muscle through balanced hypertrophy training, practical volume, and progressive overload.", "Bodybuilding"),
@@ -81,7 +81,7 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 is_production = os.environ.get("SYLRIX_ENV") == "production"
 csrf_enabled = os.environ.get("SYLRIX_CSRF_ENABLED", "1" if is_production else "0") == "1"
 app.config["BETA_MODE"] = os.environ.get("SYLRIX_BETA_MODE") == "1"
-app.config["ASSET_VERSION"] = os.environ.get("SYLRIX_ASSET_VERSION", "20260922")
+app.config["ASSET_VERSION"] = os.environ.get("SYLRIX_ASSET_VERSION", "20260923")
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SYLRIX_COOKIE_SECURE", "1" if is_production else "0") == "1"
 
 if is_production and app.config["SECRET_KEY"] == "change-this-before-deploying":
@@ -89,6 +89,11 @@ if is_production and app.config["SECRET_KEY"] == "change-this-before-deploying":
 if is_production:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 app.logger.info("SYLRIX starting in %s mode", "production" if is_production else "development")
+
+
+def flash(message, category="message"):
+    """Localize application-owned notices without changing route behavior."""
+    return flask_flash(translate(message, selected_language()), category)
 
 
 @app.context_processor
@@ -107,6 +112,7 @@ def localization_context():
         "language": language,
         "t": lambda text: translate(text, language),
         "display_exercise": lambda name: display_exercise(name, language),
+        "display_instruction": lambda instruction: display_instruction(instruction, language),
         "display_muscle_localized": lambda name: display_muscle_localized(name, language),
         "language_return_to": request.full_path if request.query_string else request.path,
     }

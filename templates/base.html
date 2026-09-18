@@ -36,8 +36,8 @@
           <a class="{% if request.endpoint == 'nutrition' %}active{% endif %}" href="{{ url_for('nutrition') }}">{{ t('Nutrition') }}</a><a class="{% if request.endpoint in ['progress', 'workout_history', 'workout_history_detail', 'exercise_progress'] %}active{% endif %}" href="{{ url_for('progress') }}">{{ t('Progress') }}</a>
           <a class="{% if request.endpoint == 'app_profile' %}active{% endif %}" href="{{ url_for('app_profile') }}">{{ t('Profile') }}</a>
         </div>
-        <details class="nav-more"><summary>More</summary><div class="more-menu">
-          <a class="{% if request.endpoint == 'readiness' %}active{% endif %}" href="{{ url_for('readiness') }}">{{ t('Readiness') }}</a><a href="{{ url_for('steps') }}">{{ t('Steps') }}</a><a href="{{ url_for('workout_history') }}">{{ t('History') }}</a><a href="{{ url_for('log_workout') }}">{{ t('Log workout') }}</a><button class="pwa-install" id="pwa-install" type="button" hidden>Install SYLRIX.FIT</button><a href="{{ url_for('logout') }}">{{ t('Log out') }}</a>
+        <details class="nav-more"><summary>{{ t('More') }}</summary><div class="more-menu">
+          <a class="{% if request.endpoint == 'readiness' %}active{% endif %}" href="{{ url_for('readiness') }}">{{ t('Readiness') }}</a><a href="{{ url_for('steps') }}">{{ t('Steps') }}</a><a href="{{ url_for('workout_history') }}">{{ t('History') }}</a><a href="{{ url_for('log_workout') }}">{{ t('Log workout') }}</a><button class="pwa-install" id="pwa-install" type="button" hidden>{{ t('Install SYLRIX.FIT') }}</button><a href="{{ url_for('logout') }}">{{ t('Log out') }}</a>
         </div></details>
         {% else %}
         <a href="{{ url_for('home') }}">{{ t('Home') }}</a><a href="{{ url_for('exercises') }}">{{ t('Exercises') }}</a><a href="{{ url_for('login') }}">{{ t('Log in') }}</a><a class="nav-cta" href="{{ url_for('register') }}">{{ t('Get started') }}</a>
