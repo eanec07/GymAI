@@ -129,6 +129,30 @@ class LocalizationAndSharingTests(unittest.TestCase):
         with sylrix.db_connection() as db:
             self.assertEqual(db.execute("SELECT exercise_name FROM workout_sets WHERE id=?", (self.set_id,)).fetchone()["exercise_name"], "Bench Press")
 
+    def test_remaining_member_screens_render_spanish_application_copy(self):
+        self.client_a.post("/language", data={"language": "es", "return_to": "/app"})
+        expectations = {
+            "/app/profile": b"Editar perfil",
+            "/app/readiness": b"Registro diario",
+            "/nutrition": b"Nutrici",
+            "/progress": b"Tendencia de peso corporal",
+            "/plan": b"Tu divisi",
+            "/history": b"Historial de entrenamientos",
+        }
+        for path, expected in expectations.items():
+            response = self.client_a.get(path)
+            self.assertEqual(response.status_code, 200, path)
+            self.assertIn(expected, response.data, path)
+        pending = sylrix.app.test_client()
+        with sylrix.db_connection() as db:
+            pending_id = db.execute("INSERT INTO accounts (username, email, password_hash) VALUES ('pending_es', 'pending@example.test', 'hash')").lastrowid
+        with pending.session_transaction() as session:
+            session["account_id"] = pending_id
+            session["language"] = "es"
+        onboarding = pending.get("/onboarding")
+        self.assertEqual(onboarding.status_code, 200)
+        self.assertIn("Paso 1 / Crea tu perfil".encode(), onboarding.data)
+
 
 if __name__ == "__main__":
     unittest.main()

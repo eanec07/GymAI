@@ -29,7 +29,7 @@ from training.progression import get_progression_recommendation
 from training.prs import detect_prs
 from training.adaptive import apply_progression_states, progression_state, progression_states, recommendation_for_session, save_progression_state
 from muscles import diagram_regions, display_muscle
-from services.i18n import display_exercise, display_instruction, display_muscle_localized, normalize_language, translate
+from services.i18n import display_exercise, display_instruction, display_muscle_localized, localize_html, normalize_language, translate
 
 TRAINING_CATEGORIES = {
     "bodybuilding": ("Bodybuilding", "Build muscle through balanced hypertrophy training, practical volume, and progressive overload.", "Bodybuilding"),
@@ -81,7 +81,7 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 is_production = os.environ.get("SYLRIX_ENV") == "production"
 csrf_enabled = os.environ.get("SYLRIX_CSRF_ENABLED", "1" if is_production else "0") == "1"
 app.config["BETA_MODE"] = os.environ.get("SYLRIX_BETA_MODE") == "1"
-app.config["ASSET_VERSION"] = os.environ.get("SYLRIX_ASSET_VERSION", "20260923")
+app.config["ASSET_VERSION"] = os.environ.get("SYLRIX_ASSET_VERSION", "20260924")
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SYLRIX_COOKIE_SECURE", "1" if is_production else "0") == "1"
 
 if is_production and app.config["SECRET_KEY"] == "change-this-before-deploying":
@@ -124,6 +124,14 @@ def enforce_csrf():
         token = request.form.get("csrf_token", "")
         if not token or not secrets.compare_digest(token, session.get("csrf_token", "")):
             abort(403)
+
+
+@app.after_request
+def localize_rendered_html(response):
+    """Cover legacy template literals while leaving JSON, assets, and member data alone."""
+    if response.mimetype == "text/html" and not response.is_streamed and selected_language() == "es":
+        response.set_data(localize_html(response.get_data(as_text=True), "es"))
+    return response
 
 
 @contextmanager
