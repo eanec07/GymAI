@@ -59,6 +59,7 @@ class DeploymentReadinessTests(unittest.TestCase):
         manifest.close()
         worker = self.client.get("/service-worker.js")
         self.assertEqual(worker.status_code, 200)
+        self.assertIn(b"sylrix-phone-", worker.data)
         self.assertIn(b"sylrix-public-", worker.data)
         self.assertIn(b"/static/offline.html", worker.data)
         self.assertNotIn(b"'/app'", worker.data)
@@ -71,9 +72,12 @@ class DeploymentReadinessTests(unittest.TestCase):
 
     def test_mobile_shell_keeps_portrait_navigation_and_pwa_product_name(self):
         page = self.client.get("/")
-        self.assertIn(b'<meta name="viewport" content="width=device-width, initial-scale=1">', page.data)
+        self.assertIn(b'<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">', page.data)
         self.assertIn(b'aria-controls="site-navigation"', page.data)
         self.assertIn(b'id="mobile-menu-toggle"', page.data)
+        self.assertEqual(page.data.count(b'id="mobile-menu-toggle"'), 1)
+        self.assertEqual(page.data.count(b'id="site-navigation"'), 1)
+        self.assertIn(b'id="mobile-nav-backdrop"', page.data)
         self.assertIn(b"try { localStorage.setItem('sylrix-language'", page.data)
         self.assertNotIn(b"closeNavigation", page.data)
         page.close()
@@ -82,7 +86,7 @@ class DeploymentReadinessTests(unittest.TestCase):
         manifest_response.close()
         self.assertEqual(manifest["name"], "SYLRIX.FIT")
         self.assertEqual(manifest["short_name"], "SYLRIX.FIT")
-        self.assertEqual(manifest["orientation"], "any")
+        self.assertEqual(manifest["orientation"], "portrait-primary")
 
         product_response = self.client.get("/static/sylrix-fit.css")
         product_css = product_response.get_data(as_text=True)
@@ -104,6 +108,7 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertIn(b"aria-expanded", mobile_nav.data)
         self.assertIn(b"event.key === 'Escape'", mobile_nav.data)
         self.assertNotIn(b"localStorage", mobile_nav.data)
+        self.assertIn(b"mobile-nav-backdrop", mobile_nav.data)
         mobile_nav.close()
 
     def test_every_training_style_has_portrait_cover_and_focal_position(self):

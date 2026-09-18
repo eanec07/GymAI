@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sylrix-public-{{ asset_version }}';
+const CACHE_NAME = 'sylrix-phone-{{ asset_version }}';
 const PUBLIC_SHELL = [
   '/static/offline.html',
   '/static/style.css',
@@ -23,7 +23,7 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil(caches.keys().then(keys => Promise.all(
-    keys.filter(key => key.startsWith('sylrix-public-') && key !== CACHE_NAME).map(key => caches.delete(key))
+    keys.filter(key => (key.startsWith('sylrix-public-') || key.startsWith('sylrix-phone-')) && key !== CACHE_NAME).map(key => caches.delete(key))
   )).then(() => self.clients.claim()));
 });
 
