@@ -27,6 +27,7 @@
       <a class="product-brand" href="{{ url_for('home') }}" aria-label="SYLRIX.FIT home">{% include 'components/logo.html' %}<small>Intelligent training system</small></a>
       <button class="nav-toggle" type="button" aria-controls="site-navigation" aria-expanded="false">{{ t('Menu') }}</button>
       <div class="nav-links" id="site-navigation">
+        <div class="mobile-menu-brand" aria-hidden="true">{% include 'components/logo.html' %}</div>
         {% if session.get('account_id') %}
         <div class="primary-nav">
           <a class="{% if request.endpoint == 'app_dashboard' %}active{% endif %}" href="{{ url_for('app_dashboard') }}">{{ t('Dashboard') }}</a>
@@ -55,10 +56,12 @@
     const siteNav = document.querySelector('.site-nav');
     const closeNavigation = () => {
       siteNavigation?.classList.remove('open');
+      document.body.classList.remove('nav-open');
       navToggle?.setAttribute('aria-expanded', 'false');
     };
     navToggle?.addEventListener('click', () => {
       const open = siteNavigation.classList.toggle('open');
+      document.body.classList.toggle('nav-open', open);
       navToggle.setAttribute('aria-expanded', String(open));
     });
     siteNavigation?.querySelectorAll('a').forEach(link => link.addEventListener('click', closeNavigation));

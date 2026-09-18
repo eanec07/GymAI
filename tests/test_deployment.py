@@ -77,12 +77,26 @@ class DeploymentReadinessTests(unittest.TestCase):
         product_response.close()
         self.assertIn("Portrait-first shell", product_css)
         self.assertIn(".nav-links.open{display:flex!important}", product_css)
+        self.assertIn("position:fixed!important", product_css)
+        self.assertIn("body.nav-open{overflow:hidden}", product_css)
         self.assertIn(".active-workout-screen .set-row{grid-template-columns:repeat(3,minmax(0,1fr)) auto!important", product_css)
         training_response = self.client.get("/static/training-cards.css")
         training_css = training_response.get_data(as_text=True)
         training_response.close()
         self.assertIn(".training-card-overlay", training_css)
         self.assertIn(".training-card--powerlifting img", training_css)
+
+    def test_landing_uses_distinct_approved_brand_adjacent_photography(self):
+        stylesheet_response = self.client.get("/static/marketing.css")
+        stylesheet = stylesheet_response.get_data(as_text=True)
+        stylesheet_response.close()
+        self.assertIn("sylrix-hero-redhead-v1.png", stylesheet)
+        self.assertIn("sylrix-latina-row-v1.png", stylesheet)
+        for path in ("/static/assets/sylrix-hero-redhead-v1.png", "/static/assets/sylrix-latina-row-v1.png"):
+            asset = self.client.get(path)
+            self.assertEqual(asset.status_code, 200, path)
+            self.assertEqual(asset.mimetype, "image/png")
+            asset.close()
 
     def test_coach_styles_use_the_sylrix_palette(self):
         stylesheet_response = self.client.get("/static/app-screens.css")

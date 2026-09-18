@@ -194,6 +194,22 @@ class LocalizationAndSharingTests(unittest.TestCase):
         self.assertIn("data-chart-title=\"Peso corporal (lb)\"".encode(), response.data)
         self.assertIn("data-goal-label=\"Objetivo\"".encode(), response.data)
 
+    def test_spanish_dashboard_localizes_dynamic_readiness_and_exercise_values(self):
+        with sylrix.db_connection() as db:
+            db.execute(
+                "INSERT INTO daily_readiness (member_id, logged_on, sleep_hours, sleep_quality, energy, soreness, stress, motivation, notes, score, classification) VALUES (?, ?, 8, 5, 5, 1, 1, 5, '', 90, 'High')",
+                (self.member_a, sylrix.date.today().isoformat()),
+            )
+            db.execute(
+                "INSERT INTO personal_records (member_id, exercise_name, pr_type, value) VALUES (?, 'Bench Press', 'Weight PR', 200)",
+                (self.member_a,),
+            )
+        self.client_a.post("/language", data={"language": "es", "return_to": "/app"})
+        dashboard = self.client_a.get("/app")
+        self.assertIn("ALTA PREPARACIÓN".encode(), dashboard.data)
+        self.assertIn("Entrena según lo planeado".encode(), dashboard.data)
+        self.assertIn("Press de banca".encode(), dashboard.data)
+
 
 if __name__ == "__main__":
     unittest.main()
