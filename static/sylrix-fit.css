@@ -69,3 +69,18 @@ body:not(.marketing-page) .badge{background:#321d1e;color:#f4c3c4}body:not(.mark
 .anatomy-component .region.secondary{fill:#B85A45!important;stroke:#F09A77!important}
 .anatomy-component .muscle-detail path{stroke:#E0E4E7!important}
 .secondary-key{background:#B85A45!important}
+
+/* One portrait navigation implementation. Without JavaScript the links remain
+   visible in-flow; mobile-nav.js adds the ready class before enabling the panel. */
+.build-marker{display:block;color:var(--text-muted);font:500 .62rem "DM Mono",monospace;letter-spacing:.06em}
+@media(max-width:600px){
+  html:not(.mobile-nav-ready) .nav-toggle{display:none!important}
+  html:not(.mobile-nav-ready) .nav-links{display:flex!important;position:static!important;max-height:none!important;overflow:visible!important;box-shadow:none!important}
+  html.mobile-nav-ready .nav-links{display:none!important;position:fixed!important;top:64px!important;right:0!important;bottom:0!important;left:0!important;z-index:100!important;pointer-events:auto!important;overflow-y:auto!important;overscroll-behavior:contain!important}
+  html.mobile-nav-ready .nav-links.open{display:flex!important}
+  .anatomy-panel,.anatomy-view,.exercise-detail-grid{min-width:0;max-width:100%}
+  .anatomy-component .body-base ellipse,.anatomy-component .body-base path{fill:#59616C!important;stroke:#D2D7DB!important}
+  .anatomy-component .region{fill:#8A939D!important;stroke:#F0F2F4!important;stroke-width:1.35!important}
+  .anatomy-component .region.primary{fill:#FF3B37!important;stroke:#FFD0CE!important}
+  .anatomy-component .region.secondary{fill:#D46B4E!important;stroke:#FFD0AE!important}
+}

@@ -92,7 +92,7 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 is_production = os.environ.get("SYLRIX_ENV") == "production"
 csrf_enabled = os.environ.get("SYLRIX_CSRF_ENABLED", "1" if is_production else "0") == "1"
 app.config["BETA_MODE"] = os.environ.get("SYLRIX_BETA_MODE") == "1"
-app.config["ASSET_VERSION"] = os.environ.get("SYLRIX_ASSET_VERSION", "20260927")
+app.config["ASSET_VERSION"] = os.environ.get("SYLRIX_ASSET_VERSION", "20260928")
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SYLRIX_COOKIE_SECURE", "1" if is_production else "0") == "1"
 
 if is_production and app.config["SECRET_KEY"] == "change-this-before-deploying":
@@ -439,6 +439,14 @@ def health():
         app.logger.exception("Health check database failure")
         return {"status": "unavailable"}, 503
     return {"status": "ok"}
+
+
+@app.route("/version")
+def version():
+    """A deliberately non-sensitive frontend build marker for device QA."""
+    response = app.json.response({"app": "SYLRIX.FIT", "build": app.config["ASSET_VERSION"]})
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 @app.route("/language", methods=["POST"])

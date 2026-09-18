@@ -33,6 +33,14 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertIn(b"This page is not here", missing.data)
         self.assertNotIn(b"Traceback", missing.data)
 
+    def test_public_version_marker_is_non_sensitive_and_matches_assets(self):
+        response = self.client.get("/version")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {"app": "SYLRIX.FIT", "build": sylrix.app.config["ASSET_VERSION"]})
+        self.assertEqual(response.headers["Cache-Control"], "no-cache")
+        page = self.client.get("/")
+        self.assertIn(f"Build {sylrix.app.config['ASSET_VERSION']}".encode(), page.data)
+
     def test_shared_shell_versions_authoritative_stylesheets(self):
         page = self.client.get("/")
         self.assertIn(b"sylrix-fit.css?v=", page.data)
@@ -44,6 +52,7 @@ class DeploymentReadinessTests(unittest.TestCase):
         page = self.client.get("/")
         self.assertIn(b'rel="manifest"', page.data)
         self.assertIn(b"pwa.js?v=", page.data)
+        self.assertIn(b"mobile-nav.js?v=", page.data)
         manifest = self.client.get("/manifest.webmanifest")
         self.assertEqual(manifest.status_code, 200)
         self.assertEqual(manifest.get_json()["display"], "standalone")
@@ -66,8 +75,7 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertIn(b'aria-controls="site-navigation"', page.data)
         self.assertIn(b'id="mobile-menu-toggle"', page.data)
         self.assertIn(b"try { localStorage.setItem('sylrix-language'", page.data)
-        self.assertIn(b"closeNavigation", page.data)
-        self.assertIn(b"event.key === 'Escape'", page.data)
+        self.assertNotIn(b"closeNavigation", page.data)
         page.close()
         manifest_response = self.client.get("/manifest.webmanifest")
         manifest = manifest_response.get_json()
@@ -89,6 +97,14 @@ class DeploymentReadinessTests(unittest.TestCase):
         training_response.close()
         self.assertIn(".training-card-overlay", training_css)
         self.assertIn(".training-card--powerlifting img", training_css)
+
+        mobile_nav = self.client.get("/static/mobile-nav.js")
+        self.assertEqual(mobile_nav.status_code, 200)
+        self.assertIn(b"mobile-nav-ready", mobile_nav.data)
+        self.assertIn(b"aria-expanded", mobile_nav.data)
+        self.assertIn(b"event.key === 'Escape'", mobile_nav.data)
+        self.assertNotIn(b"localStorage", mobile_nav.data)
+        mobile_nav.close()
 
     def test_every_training_style_has_portrait_cover_and_focal_position(self):
         response = self.client.get("/static/training-cards.css")

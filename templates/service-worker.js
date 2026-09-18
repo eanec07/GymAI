@@ -6,6 +6,7 @@ const PUBLIC_SHELL = [
   '/static/training-cards.css',
   '/static/app-screens.css',
   '/static/sylrix-fit.css',
+  '/static/mobile-nav.js',
   '/static/pwa.js',
   '/static/branding/sylrix-icon.png',
   '/static/branding/sylrix-wordmark.png',
