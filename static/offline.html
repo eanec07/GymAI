@@ -4,16 +4,22 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0B0B0B">
-  <title>Offline · SYLRIX.FIT</title>
+  <title data-en="Offline · SYLRIX.FIT" data-es="Sin conexión · SYLRIX.FIT">Offline · SYLRIX.FIT</title>
   <link rel="stylesheet" href="/static/sylrix-fit.css">
 </head>
 <body>
   <main class="offline-screen">
     <div class="offline-brand" aria-label="SYLRIX.FIT"><img src="/static/branding/sylrix-icon.png" alt=""><img src="/static/branding/sylrix-wordmark.png" alt=""><span>.FIT</span></div>
-    <p class="eyebrow">Connection required</p>
-    <h1>You’re offline.</h1>
-    <p>Reconnect to securely load your training, member data, and actions. Nothing has been saved while offline.</p>
-    <button type="button" onclick="location.reload()">Try again</button>
+    <p class="eyebrow" data-en="Connection required" data-es="Se requiere conexión">Connection required</p>
+    <h1 data-en="You’re offline." data-es="No tienes conexión.">You’re offline.</h1>
+    <p data-en="Reconnect to securely load your training, member data, and actions. Nothing has been saved while offline." data-es="Vuelve a conectarte para cargar de forma segura tu entrenamiento, datos de miembro y acciones. No se ha guardado nada sin conexión.">Reconnect to securely load your training, member data, and actions. Nothing has been saved while offline.</p>
+    <button type="button" onclick="location.reload()" data-en="Try again" data-es="Intentar de nuevo">Try again</button>
   </main>
+  <script>
+    if (localStorage.getItem('sylrix-language') === 'es') {
+      document.documentElement.lang = 'es';
+      document.querySelectorAll('[data-es]').forEach((element) => { element.textContent = element.dataset.es; });
+    }
+  </script>
 </body>
 </html>

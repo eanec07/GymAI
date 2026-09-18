@@ -153,6 +153,47 @@ class LocalizationAndSharingTests(unittest.TestCase):
         self.assertEqual(onboarding.status_code, 200)
         self.assertIn("Paso 1 / Crea tu perfil".encode(), onboarding.data)
 
+    def test_final_public_and_error_screens_render_spanish_copy(self):
+        guest = sylrix.app.test_client()
+        guest.post("/language", data={"language": "es", "return_to": "/"})
+        expectations = {
+            "/": "Entrena con intención.",
+            "/daily": "Calendario de entrenamiento",
+            "/sources": "De dónde proviene la información de SYLRIX",
+            "/not-here": "Esta página no existe.",
+        }
+        for path, expected in expectations.items():
+            response = guest.get(path)
+            self.assertIn(expected.encode(), response.data, path)
+        self.client_a.post("/language", data={"language": "es", "return_to": "/steps"})
+        self.assertIn("Objetivo diario de movimiento".encode(), self.client_a.get("/steps").data)
+        self.assertIn("Crea tu ruta física".encode(), self.client_a.get("/physique").data)
+
+    def test_spanish_completion_profile_reset_training_category_and_legal_copy(self):
+        self.client_a.post("/language", data={"language": "es", "return_to": "/app"})
+        profile = self.client_a.get("/app/profile")
+        self.assertIn("Reiniciar configuración".encode(), profile.data)
+        self.assertIn("Escribe RESET para confirmar".encode(), profile.data)
+        category = self.client_a.get("/training/strength")
+        self.assertEqual(category.status_code, 200)
+        self.assertIn("Entrena movimientos fundamentales".encode(), category.data)
+        self.assertIn("División inicial recomendada".encode(), category.data)
+        privacy = self.client_a.get("/privacy")
+        self.assertIn("SYLRIX almacena la información".encode(), privacy.data)
+        complete = self.client_a.post(f"/workout/session/{self.session_id}/finish", data={"confirm": "finish"})
+        self.assertEqual(complete.status_code, 200)
+        self.assertIn("Entrenamiento completado".encode(), complete.data)
+        self.assertIn("Sesión guardada.".encode(), complete.data)
+
+    def test_spanish_weight_chart_configuration_uses_translated_labels(self):
+        self.client_a.post("/language", data={"language": "es", "return_to": "/progress"})
+        with sylrix.db_connection() as db:
+            db.execute("INSERT INTO body_weight_logs (member_id, weight, logged_on) VALUES (?, ?, ?)", (self.member_a, 180, "2026-01-01"))
+            db.execute("INSERT INTO body_weight_logs (member_id, weight, logged_on) VALUES (?, ?, ?)", (self.member_a, 178, "2026-01-08"))
+        response = self.client_a.get("/progress")
+        self.assertIn("data-chart-title=\"Peso corporal (lb)\"".encode(), response.data)
+        self.assertIn("data-goal-label=\"Objetivo\"".encode(), response.data)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -49,6 +49,7 @@
   {% block shell %}<main>{% with messages = get_flashed_messages() %}{% if messages %}<div class="flash-stack">{% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}{% block content %}{% endblock %}</main>{% endblock %}
   <footer class="site-footer"><div><strong>SYLRIX.FIT</strong><span>Built around the work you actually log.</span></div><span><a href="{{ url_for('privacy') }}">Privacy</a> · <a href="{{ url_for('terms') }}">Terms</a></span></footer>
   <script>
+    localStorage.setItem('sylrix-language', '{{ language }}');
     const navToggle = document.querySelector('.nav-toggle');
     const siteNavigation = document.querySelector('#site-navigation');
     const siteNav = document.querySelector('.site-nav');
