@@ -88,7 +88,7 @@ class CoachService:
         if not member:
             return {}
         preferences = {row["preference_key"]: row["preference_value"] for row in db.execute("SELECT preference_key, preference_value FROM training_preferences WHERE member_id=?", (member_id,))}
-        fields = ("goal", "training_style", "experience", "days", "session_minutes", "equipment", "equipment_notes", "limitations", "favorite_exercises", "avoid_exercises")
+        fields = ("goal", "training_style", "split_preference", "experience", "days", "session_minutes", "equipment", "equipment_notes", "limitations", "favorite_exercises", "avoid_exercises")
         return {**{field: member[field] for field in fields}, "training_preferences": preferences}
 
     def _exercise(self, value):
@@ -167,6 +167,11 @@ class CoachService:
                 return "Start with the quick Readiness check-in so I can give deterministic, non-medical guidance for today’s session."
             readiness = recommendation["readiness"]
             return f"Your readiness today is {readiness['score']}/100 ({readiness['classification']}). {recommendation['message']}"
+
+        if "split" in lowered:
+            profile = self._tool(member_id, "get_member_profile", {})
+            split = profile.get("split_preference", "auto")
+            return f"Your saved workout split preference is {split}. It affects future generated workouts; change it in Profile, not through Coach."
 
         if any(word in lowered for word in ("latest weight", "weight changed", "weight have i", "starting weight", "weigh-in", "weigh in", "weight goal", "from my goal")):
             progress = self._tool(member_id, "get_weight_progress", {})
@@ -471,6 +476,10 @@ class CoachService:
                 return "Completa el registro rápido de preparación para recibir una recomendación para hoy."
             readiness = recommendation["readiness"]
             return f"Tu preparación de hoy es {readiness['score']}/100 ({readiness['classification']}). {recommendation['message']}"
+        if "división" in lowered or "division" in lowered or "split" in lowered:
+            profile = self._tool(member_id, "get_member_profile", {})
+            split = profile.get("split_preference", "auto")
+            return f"Tu preferencia de división guardada es {split}. Afecta futuros entrenamientos generados; cámbiala en Perfil, no mediante Coach."
         if "prote" in lowered or "calor" in lowered or "macro" in lowered:
             data = self._tool(member_id, "get_today_nutrition", {})
             return f"Tu objetivo actual es aproximadamente {data['targets']['calories']} calorías y {data['targets']['protein']} g de proteína."

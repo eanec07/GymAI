@@ -64,6 +64,17 @@ TRAINING_PREFERENCE_FIELDS = {
     "general-fitness": (("primary_goal", "Primary goal", "Strength, energy, fat loss, mobility…", "text"), ("cardio_priority", "Cardio priority", "Low, moderate, or high", "text"), ("body_composition_priority", "Body-composition priority", "Example: lose 15 lb", "text"), ("preferred_cardio", "Preferred cardio", "Walk, run, bike, row…", "text")),
 }
 
+# Canonical values are shared with the programming modules. Specialized paths
+# keep their dedicated deterministic rotations; only general strength paths
+# can safely accept an alternate split today.
+SPLIT_LABELS = {
+    "auto": "SYLRIX Recommended",
+    "full body": "Full Body",
+    "upper lower": "Upper / Lower",
+    "push pull legs": "Push / Pull / Legs",
+}
+SPECIALIZED_SPLIT_STYLES = {"bodybuilding", "powerlifting", "powerbuilding", "crossfit", "calisthenics", "endurance"}
+
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE = Path(os.environ.get("SYLRIX_DATABASE_PATH", str(BASE_DIR / "sylrix.db")))
 LEGACY_DATABASES = (BASE_DIR / "sylrix_ai.db", BASE_DIR / "renata_ai.db", BASE_DIR / "gymai.db")
@@ -263,6 +274,25 @@ def public_share_url(share_token):
 
 def valid_training_style(value):
     return value if value in TRAINING_CATEGORIES else ""
+
+
+def split_choices(training_style, days):
+    """Return only split identifiers the selected generator will honor."""
+    choices = [("auto", SPLIT_LABELS["auto"])]
+    if training_style in SPECIALIZED_SPLIT_STYLES:
+        return choices
+    if 1 <= days <= 7:
+        choices.append(("full body", SPLIT_LABELS["full body"]))
+    if 2 <= days <= 7:
+        choices.append(("upper lower", SPLIT_LABELS["upper lower"]))
+    if 3 <= days <= 7:
+        choices.append(("push pull legs", SPLIT_LABELS["push pull legs"]))
+    return choices
+
+
+def valid_split_preference(value, training_style, days):
+    normalized = (value or "auto").strip().lower()
+    return normalized if normalized in {choice for choice, _label in split_choices(training_style, days)} else ""
 
 
 def training_preferences_for(member_id):
@@ -627,13 +657,14 @@ def onboarding():
     if request.method == "POST":
         try:
             selected_style = valid_training_style(request.form.get("training_style", "") or session.get("pending_training_style", ""))
-            values = {"name": request.form["name"].strip(), "age": int(request.form["age"]), "sex": request.form["sex"].lower(), "weight": float(request.form["weight"]), "height": float(request.form["height"]), "goal": request.form["goal"].lower(), "days": int(request.form["days"]), "equipment": request.form["equipment"].lower(), "experience": request.form["experience"].lower(), "custom_goal": request.form.get("custom_goal", "").strip()[:500], "training_style": selected_style, "split_preference": request.form.get("split_preference", "auto").strip()[:100], "equipment_notes": request.form.get("equipment_notes", "").strip()[:500], "limitations": request.form.get("limitations", "").strip()[:500], "session_minutes": int(request.form.get("session_minutes", 60)), "favorite_exercises": request.form.get("favorite_exercises", "").strip()[:300], "avoid_exercises": request.form.get("avoid_exercises", "").strip()[:300]}
-            if not values["name"] or not 1 <= values["days"] <= 7 or values["age"] < 13 or not 20 <= values["session_minutes"] <= 120:
+            values = {"name": request.form["name"].strip(), "age": int(request.form["age"]), "sex": request.form["sex"].lower(), "weight": float(request.form["weight"]), "height": float(request.form["height"]), "goal": request.form["goal"].lower(), "days": int(request.form["days"]), "equipment": request.form["equipment"].lower(), "experience": request.form["experience"].lower(), "custom_goal": request.form.get("custom_goal", "").strip()[:500], "training_style": selected_style, "equipment_notes": request.form.get("equipment_notes", "").strip()[:500], "limitations": request.form.get("limitations", "").strip()[:500], "session_minutes": int(request.form.get("session_minutes", 60)), "favorite_exercises": request.form.get("favorite_exercises", "").strip()[:300], "avoid_exercises": request.form.get("avoid_exercises", "").strip()[:300]}
+            values["split_preference"] = valid_split_preference(request.form.get("split_preference"), selected_style, values["days"])
+            if not values["name"] or not values["split_preference"] or not 1 <= values["days"] <= 7 or values["age"] < 13 or not 20 <= values["session_minutes"] <= 120:
                 raise ValueError
         except (KeyError, ValueError):
             flash("Please enter valid profile details. Training days must be from 1 to 7.")
             selected_style = valid_training_style(session.get("pending_training_style", ""))
-            return render_template("onboarding.html", selected_training_style=selected_style, selected_setup=CATEGORY_SETUP.get(selected_style), training_fields=TRAINING_PREFERENCE_FIELDS.get(selected_style, ()))
+            return render_template("onboarding.html", selected_training_style=selected_style, selected_setup=CATEGORY_SETUP.get(selected_style), training_fields=TRAINING_PREFERENCE_FIELDS.get(selected_style, ()), split_choices=split_choices(selected_style, 3), split_preference="auto")
         with db_connection() as connection:
             cursor = connection.execute("""INSERT INTO members (name, age, sex, weight, height, goal, days, equipment, experience, custom_goal, training_style, split_preference, equipment_notes, limitations, session_minutes, favorite_exercises, avoid_exercises)
                 VALUES (:name, :age, :sex, :weight, :height, :goal, :days, :equipment, :experience, :custom_goal, :training_style, :split_preference, :equipment_notes, :limitations, :session_minutes, :favorite_exercises, :avoid_exercises)""", values)
@@ -643,7 +674,7 @@ def onboarding():
         session.pop("pending_training_style", None)
         return redirect(url_for("plan"))
     selected_style = valid_training_style(session.get("pending_training_style", ""))
-    return render_template("onboarding.html", selected_training_style=selected_style, selected_setup=CATEGORY_SETUP.get(selected_style), training_fields=TRAINING_PREFERENCE_FIELDS.get(selected_style, ()))
+    return render_template("onboarding.html", selected_training_style=selected_style, selected_setup=CATEGORY_SETUP.get(selected_style), training_fields=TRAINING_PREFERENCE_FIELDS.get(selected_style, ()), split_choices=split_choices(selected_style, 3), split_preference="auto")
 
 
 @app.route("/plan")
@@ -1003,21 +1034,23 @@ def app_profile():
                 current_weight = float(request.form["weight"])
                 goal_weight_text = request.form.get("goal_weight", "").strip()
                 goal_weight = float(goal_weight_text) if goal_weight_text else None
-                values = (name, current_weight, goal_weight, request.form["goal"].lower(), style, request.form["experience"].lower(), int(request.form["days"]), int(request.form["session_minutes"]), request.form["equipment"].lower(), request.form.get("favorite_exercises", "")[:300], request.form.get("avoid_exercises", "")[:300], member["id"])
-                if not name or len(username) < 3 or not username.replace("_", "").replace("-", "").isalnum() or not 70 <= current_weight <= 700 or (goal_weight is not None and not 70 <= goal_weight <= 700) or not 1 <= values[6] <= 7 or not 20 <= values[7] <= 120:
+                days = int(request.form["days"])
+                split_preference = valid_split_preference(request.form.get("split_preference"), style, days)
+                values = (name, current_weight, goal_weight, request.form["goal"].lower(), style, request.form["experience"].lower(), days, int(request.form["session_minutes"]), request.form["equipment"].lower(), split_preference, request.form.get("favorite_exercises", "")[:300], request.form.get("avoid_exercises", "")[:300], member["id"])
+                if not name or not split_preference or len(username) < 3 or not username.replace("_", "").replace("-", "").isalnum() or not 70 <= current_weight <= 700 or (goal_weight is not None and not 70 <= goal_weight <= 700) or not 1 <= values[6] <= 7 or not 20 <= values[7] <= 120:
                     raise ValueError
             except (KeyError, ValueError):
                 flash("Use a valid name, username, weights, training days, and session duration.")
             else:
                 try:
                     with db_connection() as connection:
-                        connection.execute("UPDATE members SET name=?, weight=?, goal_weight=?, goal=?, training_style=?, experience=?, days=?, session_minutes=?, equipment=?, favorite_exercises=?, avoid_exercises=? WHERE id=?", values)
+                        connection.execute("UPDATE members SET name=?, weight=?, goal_weight=?, goal=?, training_style=?, experience=?, days=?, session_minutes=?, equipment=?, split_preference=?, favorite_exercises=?, avoid_exercises=? WHERE id=?", values)
                         connection.execute("UPDATE accounts SET username=? WHERE id=?", (username, session["account_id"]))
                     flash("Profile saved. Your next plan uses these settings.")
                 except sqlite3.IntegrityError:
                     flash("That username is already in use.")
             return redirect(url_for("app_profile"))
-    return render_template("profile.html", member=member, account=current_account())
+    return render_template("profile.html", member=member, account=current_account(), split_choices=split_choices(member["training_style"], member["days"]))
 
 
 @app.route("/app/coach", methods=["GET", "POST"])

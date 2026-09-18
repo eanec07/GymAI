@@ -90,6 +90,15 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertIn(".training-card-overlay", training_css)
         self.assertIn(".training-card--powerlifting img", training_css)
 
+    def test_every_training_style_has_portrait_cover_and_focal_position(self):
+        response = self.client.get("/static/training-cards.css")
+        stylesheet = response.get_data(as_text=True)
+        response.close()
+        self.assertIn("object-fit:cover", stylesheet)
+        self.assertIn("@media(max-width:600px)", stylesheet)
+        for style in ("strength", "bodybuilding", "calisthenics", "endurance", "general-fitness", "powerbuilding", "powerlifting", "crossfit"):
+            self.assertIn(f".training-card--{style} img{{object-position:", stylesheet)
+
     def test_landing_uses_distinct_approved_brand_adjacent_photography(self):
         stylesheet_response = self.client.get("/static/marketing.css")
         stylesheet = stylesheet_response.get_data(as_text=True)
